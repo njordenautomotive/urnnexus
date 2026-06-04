@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+from backend.app.api.routes import router
+from backend.app.config import ApplianceSettings
+from backend.app.models.common import ApiError
+from backend.app.services.appliance import (
+    ApplianceService,
+    ApplianceUnavailableError,
+    ProjectAmbiguousError,
+    ProjectNotFoundError,
+)
+
+
+def _configure_logging() -> None:
+    if logging.getLogger().handlers:
+        return
+    level_name = os.getenv("LOG_LEVEL", "WARNING").upper()
+    level = getattr(logging, level_name, logging.WARNING)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+
+def create_app(settings: ApplianceSettings | None = None) -> FastAPI:
+    _configure_logging()
+    app = FastAPI(title="URN Nexus Web", version="0.1.0")
+    resolved_settings = settings or ApplianceSettings()
+    app.state.appliance_service = ApplianceService(resolved_settings)
+
+    @app.get("/")
+    def root() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "product": "URN Nexus Web",
+            "api_base": "/api",
+        }
+
+    @app.exception_handler(ProjectNotFoundError)
+    async def project_not_found_handler(_: Request, exc: ProjectNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content=ApiError(code="project_not_found", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ProjectAmbiguousError)
+    async def project_ambiguous_handler(_: Request, exc: ProjectAmbiguousError) -> JSONResponse:
+        return JSONResponse(status_code=409, content=ApiError(code="project_ambiguous", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ApplianceUnavailableError)
+    async def appliance_unavailable_handler(_: Request, exc: ApplianceUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=503, content=ApiError(code="appliance_unavailable", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(Exception)
+    async def generic_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+        logging.getLogger(__name__).exception("Unhandled API error: %s", exc)
+        return JSONResponse(status_code=500, content=ApiError(code="internal_error", detail="Internal server error").model_dump(mode="json"))
+
+    app.include_router(router)
+    return app
+
+
+app = create_app()
