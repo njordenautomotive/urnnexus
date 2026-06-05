@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
 import { FileTree } from "../components/FileTree";
-import { StatCard } from "../components/StatCard";
 import { formatDateTime, getProjectFiles } from "../lib/api";
-import { countFilesInTree, filterFileTree } from "../lib/fileTree";
+import { filterFileTree } from "../lib/fileTree";
 import { useResource } from "../lib/useResource";
 import type { CountFacet } from "../types";
 import { useProjectPageContext } from "./ProjectPage";
@@ -21,10 +20,15 @@ function FilterGroup({ title, facets, selected, onSelect, emptyLabel }: FilterGr
   return (
     <section className="filter-group">
       <div className="filter-group__header">
-        <div className="filter-group__title">{title}</div>
-        <button type="button" className="button button--ghost" onClick={() => onSelect(null)} disabled={selected === null && facets.length > 0}>
-          Alle
-        </button>
+        <div>
+          <div className="filter-group__eyebrow">{title}</div>
+          <div className="filter-group__title">{facets.length} valg</div>
+        </div>
+        {selected !== null ? (
+          <button type="button" className="button button--subtle" onClick={() => onSelect(null)}>
+            Tøm
+          </button>
+        ) : null}
       </div>
       {facets.length > 0 ? (
         <div className="chip-row">
@@ -47,13 +51,6 @@ function FilterGroup({ title, facets, selected, onSelect, emptyLabel }: FilterGr
   );
 }
 
-function countVisibleFiles(node: ReturnType<typeof filterFileTree>): number {
-  if (node === null) {
-    return 0;
-  }
-  return countFilesInTree(node);
-}
-
 export function ProjectFilesPage() {
   const { project } = useProjectPageContext();
   const { data: files, loading, error, reload } = useResource(() => getProjectFiles(project.project_name), [project.project_name]);
@@ -65,8 +62,22 @@ export function ProjectFilesPage() {
     setSelectedFolderCategory(null);
   }, [project.project_name]);
 
+  const filteredTree = useMemo(() => {
+    if (!files) {
+      return null;
+    }
+    return filterFileTree(files.file_tree, {
+      extension: selectedExtension,
+      folderCategory: selectedFolderCategory,
+    });
+  }, [files, selectedExtension, selectedFolderCategory]);
+
   if (loading) {
-    return <section className="surface surface--padded">Laster filstruktur …</section>;
+    return (
+      <section className="surface surface--padded">
+        <div className="loading-copy">Laster filstruktur …</div>
+      </section>
+    );
   }
 
   if (error) {
@@ -87,40 +98,42 @@ export function ProjectFilesPage() {
     return null;
   }
 
-  const filteredTree = filterFileTree(files.file_tree, {
-    extension: selectedExtension,
-    folderCategory: selectedFolderCategory,
-  });
-  const visibleCount = countVisibleFiles(filteredTree);
-  const extensionLabel = selectedExtension ?? "alle filtyper";
-  const categoryLabel = selectedFolderCategory ?? "alle mapper";
+  const hasCommentOnlyFiles = files.total_files === 0 && files.comment_document_count > 0;
 
   return (
     <div className="section-stack">
       <section className="surface surface--padded">
-        <div className="section-header">
+        <div className="section-head">
           <div>
-            <div className="section-kicker">Filstruktur</div>
-            <h2 className="section-title">Prosjektfiler</h2>
+            <div className="section-kicker">Filer</div>
+            <h2 className="section-title">Filstruktur for {project.display_name}</h2>
           </div>
-          <div className="section-meta">
-            <StatCard label="Totalt" value={files.total_files.toLocaleString("nb-NO")} note={project.project_name} tone="accent" />
+          <div className="section-head__note">
+            {files.total_files.toLocaleString("nb-NO")} filer · {files.source_label} ·{" "}
+            {files.last_synced_at ? `synket ${formatDateTime(files.last_synced_at)}` : "synket ukjent"}
           </div>
         </div>
 
-        <div className="info-grid">
-          <div className="info-card">
-            <div className="info-card__label">Prosjektsti</div>
-            <div className="code-block code-block--compact">{files.project_path}</div>
+        <div className="detail-grid detail-grid--compact">
+          <div className="detail-card">
+            <span>Relativ sti</span>
+            <strong>{files.relative_project_path}</strong>
           </div>
-          <div className="info-card">
-            <div className="info-card__label">Filtre</div>
-            <div className="info-card__note">
-              {extensionLabel} · {categoryLabel}
-            </div>
-            <div className="info-card__note">Viser {visibleCount.toLocaleString("nb-NO")} filer i den filtrerte visningen</div>
+          <div className="detail-card">
+            <span>Siste kommentardokument</span>
+            <strong>{files.latest_comment_document ?? "Ingen"}</strong>
+          </div>
+          <div className="detail-card">
+            <span>Sist endret</span>
+            <strong>{files.latest_comment_modified_at ? formatDateTime(files.latest_comment_modified_at) : "—"}</strong>
           </div>
         </div>
+
+        {hasCommentOnlyFiles ? (
+          <div className="inline-note">
+            Dette prosjektet har bare kommentardokumenter i Kommentarer. Filstrukturen viser ingen kildefiler i lokal cache ennå.
+          </div>
+        ) : null}
 
         <div className="filters-grid">
           <FilterGroup
@@ -139,40 +152,7 @@ export function ProjectFilesPage() {
           />
         </div>
 
-        {filteredTree ? (
-          <div className="tree-panel">
-            <FileTree tree={filteredTree} />
-          </div>
-        ) : (
-          <EmptyState title="Ingen treff" description="Ingen filer matcher filtrene du har valgt." />
-        )}
-      </section>
-
-      <section className="surface surface--padded">
-        <div className="section-header">
-          <div>
-            <div className="section-kicker">Metadata</div>
-            <h2 className="section-title">Appliance-data</h2>
-          </div>
-        </div>
-        <dl className="definition-grid">
-          <div className="definition-item">
-            <dt>Oppdatering</dt>
-            <dd>{formatDateTime(files.file_tree.modified_at)}</dd>
-          </div>
-          <div className="definition-item">
-            <dt>Advarsler</dt>
-            <dd>{files.warnings.length}</dd>
-          </div>
-          <div className="definition-item definition-item--wide">
-            <dt>Filtre på backend</dt>
-            <dd className="code-block code-block--compact">
-              {files.filters.extensions.length > 0 || files.filters.folder_categories.length > 0
-                ? "Ja"
-                : "Nei"}
-            </dd>
-          </div>
-        </dl>
+        {filteredTree ? <FileTree tree={filteredTree} /> : <EmptyState title="Ingen treff" description="Ingen filer matcher filtrene akkurat nå." />}
       </section>
     </div>
   );

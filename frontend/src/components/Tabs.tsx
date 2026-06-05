@@ -11,7 +11,7 @@ export function Tabs({ items }: TabsProps) {
         <NavLink
           key={item.to}
           to={item.to}
-          end={item.to === "."}
+          end
           className={({ isActive }) => `tabs__item ${isActive ? "tabs__item--active" : ""}`}
           role="tab"
         >
@@ -21,4 +21,3 @@ export function Tabs({ items }: TabsProps) {
     </div>
   );
 }
-

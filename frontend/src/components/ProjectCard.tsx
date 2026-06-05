@@ -13,7 +13,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
       <div className="project-card__header">
         <div>
           <div className="project-card__title">{project.project_name}</div>
-          <div className="project-card__path">{project.project_path}</div>
+          <div className="project-card__path">{project.relative_project_path}</div>
         </div>
         <StatusPill status={project.status} />
       </div>
@@ -26,4 +26,3 @@ export function ProjectCard({ project }: ProjectCardProps) {
     </Link>
   );
 }
-

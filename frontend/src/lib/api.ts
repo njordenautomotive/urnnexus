@@ -60,6 +60,18 @@ export function projectUrl(projectName: string, suffix = ""): string {
   return `/projects/${encoded}${normalizedSuffix}`;
 }
 
+function withQuery(path: string, params: Record<string, string | boolean | undefined>): string {
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) {
+      continue;
+    }
+    searchParams.set(key, String(value));
+  }
+  const query = searchParams.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 export function safeDecodeProjectName(projectName: string | undefined): string {
   if (!projectName) {
     return "";
@@ -123,8 +135,12 @@ export async function getHealth(): Promise<HealthResponse> {
   return fetchJson<HealthResponse>("/health");
 }
 
-export async function getProjects(): Promise<ProjectListResponse> {
-  return fetchJson<ProjectListResponse>("/projects");
+export async function getProjects(options?: { includeSampleProjects?: boolean }): Promise<ProjectListResponse> {
+  return fetchJson<ProjectListResponse>(
+    withQuery("/projects", {
+      include_sample_projects: options?.includeSampleProjects,
+    }),
+  );
 }
 
 export async function getProject(projectName: string): Promise<ProjectDetailResponse> {
@@ -138,4 +154,3 @@ export async function getProjectReports(projectName: string): Promise<ProjectRep
 export async function getProjectFiles(projectName: string): Promise<ProjectFilesResponse> {
   return fetchJson<ProjectFilesResponse>(projectUrl(projectName, "files"));
 }
-

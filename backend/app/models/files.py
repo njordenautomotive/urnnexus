@@ -27,6 +27,15 @@ class ProjectFileFilters(ApiModel):
 
 
 class ProjectFilesResponse(ApiModel):
+    display_name: str
+    source_label: str = "OneDrive"
+    relative_project_path: str
+    hidden_internal_path: Path
+    last_synced_at: datetime | None = None
+    latest_comment_document: str | None = None
+    latest_comment_modified_at: datetime | None = None
+    comment_document_count: int = 0
+    is_sample_project: bool = False
     project_name: str
     project_path: Path
     total_files: int
@@ -37,4 +46,3 @@ class ProjectFilesResponse(ApiModel):
 
 
 ProjectFileNode.model_rebuild()
-

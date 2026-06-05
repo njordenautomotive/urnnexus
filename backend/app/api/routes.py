@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 
 from backend.app.models.health import HealthResponse
 from backend.app.models.project import (
+    ProjectDebugPathsResponse,
     ProjectDetailResponse,
     ProjectListResponse,
     ProjectReportsResponse,
@@ -46,3 +47,7 @@ def get_reports(project_name: str, service: ApplianceService = Depends(get_servi
 def get_files(project_name: str, service: ApplianceService = Depends(get_service)) -> ProjectFilesResponse:
     return service.list_files(project_name)
 
+
+@router.get("/projects/{project_name}/debug-paths", response_model=ProjectDebugPathsResponse)
+def get_debug_paths(project_name: str, service: ApplianceService = Depends(get_service)) -> ProjectDebugPathsResponse:
+    return service.debug_paths(project_name)

@@ -2,6 +2,15 @@
 
 URN Nexus Web er hovedproduktet. Denne repoen inneholder en FastAPI-backend som leser data fra den eksisterende rive-anbud-appliance, og et Vite React-frontend som viser ekte API-data uten mocker.
 
+Frontend er bevisst holdt enkel og OneDrive-lignende:
+
+- smal venstremeny
+- liste/tabellvisning for prosjekter
+- filtre for filtyper og filstruktur
+- rapporter fra `Kommentarer`-mappen
+- ingen analyseknapp og ingen IFC-viewer ennå
+- data leses fra lokal appliance-cache, ikke direkte fra OneDrive
+
 ## Arkitektur
 
 - `backend/` - FastAPI, Pydantic-modeller, logging og lesende appliance-integrasjon
@@ -17,6 +26,7 @@ Backend eksponerer disse lesende endepunktene:
 - `GET /api/projects/{project_name}`
 - `GET /api/projects/{project_name}/reports`
 - `GET /api/projects/{project_name}/files`
+- `GET /api/projects/{project_name}/debug-paths`
 
 ## Starte lokalt
 
@@ -39,6 +49,12 @@ npm run dev
 
 Frontend kjører normalt på `http://127.0.0.1:5173` og proxyer `/api` til backend.
 
+Standardvisningen skjuler sample-prosjekter. Hvis du vil se dem i frontend under utvikling, sett:
+
+```bash
+export VITE_SHOW_SAMPLE_PROJECTS=true
+```
+
 Hvis backend ligger på en annen adresse, kan du sette:
 
 ```bash
@@ -50,6 +66,7 @@ export VITE_BACKEND_URL=http://127.0.0.1:8000
 ```bash
 python -m pytest
 cd frontend
+npm test
 npm run build
 ```
 

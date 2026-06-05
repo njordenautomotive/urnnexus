@@ -16,6 +16,15 @@ export interface HealthResponse {
 
 export interface ProjectSummary {
   project_name: string;
+  display_name: string;
+  source_label: string;
+  relative_project_path: string;
+  hidden_internal_path: string;
+  last_synced_at: string | null;
+  latest_comment_document: string | null;
+  latest_comment_modified_at: string | null;
+  comment_document_count: number;
+  is_sample_project: boolean;
   project_path: string;
   last_analyzed_at: string | null;
   status: ApiStatus;
@@ -78,6 +87,15 @@ export interface FileFilters {
 }
 
 export interface ProjectFilesResponse {
+  display_name: string;
+  source_label: string;
+  relative_project_path: string;
+  hidden_internal_path: string;
+  last_synced_at: string | null;
+  latest_comment_document: string | null;
+  latest_comment_modified_at: string | null;
+  comment_document_count: number;
+  is_sample_project: boolean;
   project_name: string;
   project_path: string;
   total_files: number;
@@ -88,6 +106,15 @@ export interface ProjectFilesResponse {
 }
 
 export interface ProjectReportsResponse {
+  display_name: string;
+  source_label: string;
+  relative_project_path: string;
+  hidden_internal_path: string;
+  last_synced_at: string | null;
+  latest_comment_document: string | null;
+  latest_comment_modified_at: string | null;
+  comment_document_count: number;
+  is_sample_project: boolean;
   project_name: string;
   project_path: string;
   count: number;
@@ -96,16 +123,19 @@ export interface ProjectReportsResponse {
   errors: string[];
 }
 
-export interface ProjectDetailResponse {
-  project_name: string;
-  project_path: string;
-  last_analyzed_at: string | null;
-  status: ApiStatus;
-  file_count: number;
-  report_count: number;
-  warnings: string[];
-  errors: string[];
+export interface ProjectDetailResponse extends ProjectSummary {
   analysis: ProjectAnalysisInfo | null;
   reports: ProjectReport[];
 }
 
+export interface ProjectDebugPathsResponse {
+  project_name: string;
+  resolved_project_path: string;
+  project_path_exists: boolean;
+  total_files_on_disk: number;
+  counted_source_files: number;
+  comment_documents_found: number;
+  first_20_files_on_disk: string[];
+  ignored_file_count: number;
+  ignored_reasons: string[];
+}

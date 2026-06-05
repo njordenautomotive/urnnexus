@@ -28,7 +28,7 @@ export function ReportTable({ reports }: ReportTableProps) {
             <tr key={report.report_path}>
               <td>
                 <div className="report-table__name">{report.report_name}</div>
-                <div className="report-table__path">{report.report_path}</div>
+                <div className="report-table__path">{report.is_latest ? "Siste kommentardokument" : "Tidligere dokument"}</div>
               </td>
               <td>{report.report_type.toUpperCase()}</td>
               <td>{formatDateTime(report.modified_at)}</td>
@@ -43,4 +43,3 @@ export function ReportTable({ reports }: ReportTableProps) {
     </div>
   );
 }
-

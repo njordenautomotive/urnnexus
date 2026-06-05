@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getHealth, getProjects } from "../lib/api";
+import { filterVisibleProjects, showSampleProjectsInUi } from "../lib/projects";
 import type { HealthResponse, ProjectSummary } from "../types";
 
 interface AppDataContextValue {
@@ -13,7 +14,7 @@ interface AppDataContextValue {
   refresh: () => void;
 }
 
-const AppDataContext = createContext<AppDataContextValue | null>(null);
+export const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -31,13 +32,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setProjectsError(null);
     setProjectWarnings([]);
 
-    getProjects()
+    getProjects({ includeSampleProjects: showSampleProjectsInUi })
       .then((response) => {
         if (controller.signal.aborted) {
           return;
         }
-        setProjects(response.projects);
-        setProjectWarnings(response.warnings);
+        const visibleProjects = filterVisibleProjects(response.projects, showSampleProjectsInUi);
+        setProjects(visibleProjects);
+        setProjectWarnings(
+          Array.from(
+            new Set(visibleProjects.flatMap((project) => [...project.warnings, ...project.errors]).filter((message) => message.trim().length > 0)),
+          ),
+        );
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
@@ -107,4 +113,3 @@ export function useAppData(): AppDataContextValue {
   }
   return context;
 }
-

@@ -15,26 +15,29 @@ export function useProjectPageContext(): ProjectPageContext {
   return useOutletContext<ProjectPageContext>();
 }
 
+function formatLatestComment(project: ProjectDetailResponse): string {
+  if (project.latest_comment_document === null) {
+    return "Ingen kommentardokumenter ennå";
+  }
+  if (project.latest_comment_modified_at === null) {
+    return project.latest_comment_document;
+  }
+  return `${project.latest_comment_document} · ${formatDateTime(project.latest_comment_modified_at)}`;
+}
+
+function formatFileCount(project: ProjectDetailResponse): string {
+  if (project.file_count === 0 && project.comment_document_count > 0) {
+    return "0 filer · kun kommentardokumenter i Kommentarer";
+  }
+  return `${project.file_count} filer`;
+}
+
 export function ProjectPage() {
   const { projectName: routeProjectName = "" } = useParams();
   const projectName = safeDecodeProjectName(routeProjectName);
   const { data: project, loading, error, reload } = useResource(() => getProject(projectName), [projectName]);
 
-  const title = project?.project_name ?? projectName;
-  const status = error ? "failed" : loading ? "loading" : project?.status ?? "unknown";
-  const statusLabel = error ? "Feil" : loading ? "Laster" : undefined;
-  const meta = project
-    ? [
-        project.project_path,
-        `${project.file_count} filer`,
-        `${project.report_count} rapporter`,
-        project.last_analyzed_at ? `Sist analysert ${formatDateTime(project.last_analyzed_at)}` : "Ikke analysert",
-      ]
-    : loading
-      ? ["Henter prosjektdata …"]
-      : [];
-
-  const tabs = routeProjectName
+  const tabs = projectName
     ? [
         { to: projectUrl(projectName), label: "Oversikt" },
         { to: projectUrl(projectName, "files"), label: "Filer" },
@@ -44,22 +47,9 @@ export function ProjectPage() {
 
   return (
     <div className="page-stack">
-      <ProjectHeader
-        projectName={projectName}
-        title={title}
-        status={status}
-        statusLabel={statusLabel}
-        meta={meta}
-        actions={
-          <button type="button" className="button button--secondary" onClick={reload}>
-            Oppdater prosjekt
-          </button>
-        }
-      />
-
       {error ? (
         <ErrorState
-          title="Kunne ikke laste prosjektet"
+          title="Kunne ikke åpne prosjektet"
           description={error}
           action={
             <Link className="button button--secondary" to="/projects">
@@ -67,16 +57,32 @@ export function ProjectPage() {
             </Link>
           }
         />
-      ) : loading ? (
-        <section className="surface surface--padded surface--loading">
-          <div className="loading-copy">Laster prosjektdata …</div>
+      ) : loading || !project ? (
+        <section className="surface surface--padded">
+          <div className="loading-copy">Laster prosjekt …</div>
         </section>
-      ) : project ? (
+      ) : (
         <>
+          <ProjectHeader
+            title={project.display_name}
+            relativeProjectPath={project.relative_project_path}
+            sourceLabel={project.source_label}
+            status={project.status}
+            meta={[
+              formatFileCount(project),
+              formatLatestComment(project),
+              project.last_synced_at ? `Sist synket ${formatDateTime(project.last_synced_at)}` : "Sist synket: ukjent",
+            ]}
+            actions={
+              <button type="button" className="button button--secondary" onClick={reload}>
+                Oppdater visning
+              </button>
+            }
+          />
           <Tabs items={tabs} />
           <Outlet context={{ project, reloadProject: reload }} />
         </>
-      ) : null}
+      )}
     </div>
   );
 }
