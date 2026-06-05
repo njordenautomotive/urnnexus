@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from backend.app.config import ApplianceSettings
@@ -31,7 +32,9 @@ logger = logging.getLogger(__name__)
 OSLO_TIMEZONE = ZoneInfo("Europe/Oslo")
 LIGHTWEIGHT_STATE_DB_FILENAME = "onedrive_lightweight_state.sqlite3"
 REPORT_SUFFIXES = {".docx"}
+OPENABLE_REPORT_SUFFIXES = {".docx", ".pdf"}
 COMMENT_ROOT_NAMES = {"kommentarer", "enterprise_review"}
+DISPLAY_PATH_PREFIX = "AnbudAppliance/"
 SOURCE_CATEGORY_LABELS: dict[str, str] = {
     "background_documents": "Bakgrunnsdokumenter",
     "tender": "Anbud",
@@ -64,6 +67,10 @@ class ProjectNotFoundError(ApplianceServiceError):
 
 class ProjectAmbiguousError(ApplianceServiceError):
     """Raised when multiple projects match the same requested name."""
+
+
+class ProjectReportNotFoundError(ApplianceServiceError):
+    """Raised when a project report cannot be opened safely."""
 
 
 @dataclass(slots=True)
@@ -119,6 +126,7 @@ class ProjectRecord:
     state_path: Path | None
     last_synced_at: datetime | None
     latest_comment_document: str | None
+    latest_comment_document_open_url: str | None
     latest_comment_modified_at: datetime | None
     comment_document_count: int
     is_sample_project: bool
@@ -139,6 +147,13 @@ class ProjectRecord:
 
 def _normalize_name(value: str) -> str:
     return value.strip().casefold()
+
+
+def _display_relative_project_path(value: str) -> str:
+    text = str(value or "").strip().replace("\\", "/")
+    if text.casefold().startswith(DISPLAY_PATH_PREFIX.casefold()):
+        return text[len(DISPLAY_PATH_PREFIX) :]
+    return text
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -297,6 +312,7 @@ class ApplianceService:
                 hidden_internal_path=record.hidden_internal_path,
                 last_synced_at=record.last_synced_at,
                 latest_comment_document=record.latest_comment_document,
+                latest_comment_document_open_url=record.latest_comment_document_open_url,
                 latest_comment_modified_at=record.latest_comment_modified_at,
                 comment_document_count=record.comment_document_count,
                 is_sample_project=record.is_sample_project,
@@ -323,6 +339,7 @@ class ApplianceService:
             hidden_internal_path=record.hidden_internal_path,
             last_synced_at=record.last_synced_at,
             latest_comment_document=record.latest_comment_document,
+            latest_comment_document_open_url=record.latest_comment_document_open_url,
             latest_comment_modified_at=record.latest_comment_modified_at,
             comment_document_count=record.comment_document_count,
             is_sample_project=record.is_sample_project,
@@ -342,6 +359,7 @@ class ApplianceService:
         record = self._get_project_record(project_name, load_files=False)
         reports, warnings, errors = self._load_reports(
             record.project_path,
+            project_name=record.project_name,
             relative_project_path=record.relative_project_path,
             is_sample_project=record.is_sample_project,
         )
@@ -352,6 +370,7 @@ class ApplianceService:
             hidden_internal_path=record.hidden_internal_path,
             last_synced_at=record.last_synced_at,
             latest_comment_document=record.latest_comment_document,
+            latest_comment_document_open_url=record.latest_comment_document_open_url,
             latest_comment_modified_at=record.latest_comment_modified_at,
             comment_document_count=record.comment_document_count,
             is_sample_project=record.is_sample_project,
@@ -362,6 +381,20 @@ class ApplianceService:
             warnings=warnings or record.warnings,
             errors=errors or record.errors,
         )
+
+    def open_report(self, project_name: str, report_id: str) -> ProjectReport:
+        record = self._get_project_record(project_name, load_files=False)
+        report = self._select_report(record.reports, report_id)
+        report_path = report.report_path.expanduser().resolve(strict=True)
+
+        if report_path.suffix.lower() not in OPENABLE_REPORT_SUFFIXES:
+            raise ProjectReportNotFoundError(f"Report not found: {report_id}")
+
+        allowed_roots = self._allowed_report_roots(record)
+        if not allowed_roots or not any(report_path.is_relative_to(root) for root in allowed_roots):
+            raise ProjectReportNotFoundError(f"Report not found: {report_id}")
+
+        return report.model_copy(update={"report_path": report_path})
 
     def list_files(self, project_name: str) -> ProjectFilesResponse:
         record = self._get_project_record(project_name, load_reports=False)
@@ -375,6 +408,7 @@ class ApplianceService:
             hidden_internal_path=record.hidden_internal_path,
             last_synced_at=record.last_synced_at,
             latest_comment_document=record.latest_comment_document,
+            latest_comment_document_open_url=record.latest_comment_document_open_url,
             latest_comment_modified_at=record.latest_comment_modified_at,
             comment_document_count=record.comment_document_count,
             is_sample_project=record.is_sample_project,
@@ -401,6 +435,7 @@ class ApplianceService:
         selected_inspection = selected.source_scan or self._inspect_source_files(selected.project_path, state_path=selected.state_path)
         selected_reports, _, _ = self._load_reports(
             selected.project_path,
+            project_name=selected.project_name,
             relative_project_path=selected.relative_project_path,
             is_sample_project=selected.is_sample_project,
         )
@@ -410,6 +445,7 @@ class ApplianceService:
             inspection = candidate.source_scan or self._inspect_source_files(candidate.project_path, state_path=candidate.state_path)
             reports, _, _ = self._load_reports(
                 candidate.project_path,
+                project_name=candidate.project_name,
                 relative_project_path=candidate.relative_project_path,
                 is_sample_project=candidate.is_sample_project,
             )
@@ -532,6 +568,7 @@ class ApplianceService:
         if load_reports:
             reports, report_warnings, report_errors = self._load_reports(
                 record.project_path,
+                project_name=record.project_name,
                 relative_project_path=record.relative_project_path,
                 is_sample_project=record.is_sample_project,
             )
@@ -566,9 +603,11 @@ class ApplianceService:
             status = summary_analysis.status
 
         latest_comment_document = record.latest_comment_document
+        latest_comment_document_open_url = record.latest_comment_document_open_url
         latest_comment_modified_at = record.latest_comment_modified_at
         if load_reports:
             latest_comment_document = reports[0].report_name if reports else latest_comment_document
+            latest_comment_document_open_url = self._report_open_url(record.project_name, "latest") if reports else latest_comment_document_open_url
             latest_comment_modified_at = reports[0].modified_at if reports else latest_comment_modified_at
 
         return ProjectRecord(
@@ -580,6 +619,7 @@ class ApplianceService:
             state_path=record.state_path,
             last_synced_at=record.last_synced_at,
             latest_comment_document=latest_comment_document,
+            latest_comment_document_open_url=latest_comment_document_open_url,
             latest_comment_modified_at=latest_comment_modified_at,
             comment_document_count=comment_document_count,
             is_sample_project=record.is_sample_project,
@@ -717,6 +757,7 @@ class ApplianceService:
         relative_project_path = explicit_relative_project_path or (
             f"sample_projects/{project_name}" if is_sample_project else project_name
         )
+        relative_project_path = _display_relative_project_path(relative_project_path)
         state_path = explicit_state_path or _infer_sync_state_path(project_path)
 
         analysis = self._load_analysis_metadata(
@@ -736,12 +777,14 @@ class ApplianceService:
 
         reports, report_warnings, report_errors = self._load_reports(
             project_path,
+            project_name=project_name,
             relative_project_path=relative_project_path,
             is_sample_project=is_sample_project,
         )
         warnings.extend(report_warnings)
         errors.extend(report_errors)
         latest_comment_document = reports[0].report_name if reports else None
+        latest_comment_document_open_url = self._report_open_url(project_name, "latest") if reports else None
         latest_comment_modified_at = reports[0].modified_at if reports else None
         comment_document_count = len(reports)
 
@@ -777,6 +820,7 @@ class ApplianceService:
             state_path=state_path,
             last_synced_at=last_synced_at,
             latest_comment_document=latest_comment_document,
+            latest_comment_document_open_url=latest_comment_document_open_url,
             latest_comment_modified_at=latest_comment_modified_at,
             comment_document_count=comment_document_count,
             is_sample_project=is_sample_project,
@@ -938,10 +982,41 @@ class ApplianceService:
                 search_roots.append(candidate)
         return search_roots
 
+    def _allowed_report_roots(self, record: ProjectRecord) -> list[Path]:
+        roots: list[Path] = []
+        for root in self._comment_root_candidates(
+            record.project_path,
+            relative_project_path=record.relative_project_path,
+            is_sample_project=record.is_sample_project,
+        ):
+            for report_root in self._report_search_roots(root):
+                try:
+                    roots.append(report_root.expanduser().resolve(strict=True))
+                except Exception as exc:
+                    logger.warning("Unable to resolve report root %s: %s", report_root, exc)
+        return roots
+
+    def _select_report(self, reports: list[ProjectReport], report_id: str) -> ProjectReport:
+        normalized = str(report_id or "").strip().casefold()
+        if normalized == "latest":
+            index = 0
+        elif normalized.isdecimal():
+            index = int(normalized)
+        else:
+            raise ProjectReportNotFoundError(f"Report not found: {report_id}")
+
+        if index < 0 or index >= len(reports):
+            raise ProjectReportNotFoundError(f"Report not found: {report_id}")
+        return reports[index]
+
+    def _report_open_url(self, project_name: str, report_id: str) -> str:
+        return f"/api/projects/{quote(project_name, safe='')}/reports/{quote(report_id, safe='')}/open"
+
     def _load_reports(
         self,
         project_path: Path,
         *,
+        project_name: str,
         relative_project_path: str | None = None,
         is_sample_project: bool = False,
     ) -> tuple[list[ProjectReport], list[str], list[str]]:
@@ -990,8 +1065,16 @@ class ApplianceService:
                     )
 
         reports.sort(key=_sort_comment_documents_key, reverse=True)
-        if reports:
-            reports[0] = reports[0].model_copy(update={"is_latest": True})
+        reports = [
+            report.model_copy(
+                update={
+                    "report_id": str(index),
+                    "is_latest": index == 0,
+                    "open_url": self._report_open_url(project_name, str(index)),
+                }
+            )
+            for index, report in enumerate(reports)
+        ]
         return reports, warnings, errors
 
     def _source_file_ignore_reason(self, file_path: Path, project_root_resolved: Path) -> str | None:

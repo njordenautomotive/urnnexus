@@ -15,6 +15,7 @@ from backend.app.services.appliance import (
     ApplianceUnavailableError,
     ProjectAmbiguousError,
     ProjectNotFoundError,
+    ProjectReportNotFoundError,
 )
 
 
@@ -50,6 +51,10 @@ def create_app(settings: ApplianceSettings | None = None) -> FastAPI:
     @app.exception_handler(ProjectAmbiguousError)
     async def project_ambiguous_handler(_: Request, exc: ProjectAmbiguousError) -> JSONResponse:
         return JSONResponse(status_code=409, content=ApiError(code="project_ambiguous", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ProjectReportNotFoundError)
+    async def project_report_not_found_handler(_: Request, exc: ProjectReportNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content=ApiError(code="report_not_found", detail=str(exc)).model_dump(mode="json"))
 
     @app.exception_handler(ApplianceUnavailableError)
     async def appliance_unavailable_handler(_: Request, exc: ApplianceUnavailableError) -> JSONResponse:

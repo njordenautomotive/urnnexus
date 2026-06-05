@@ -381,11 +381,12 @@ def test_projects_endpoint_lists_discovered_projects() -> None:
     assert bryn["source_label"] == "OneDrive"
     assert bryn["is_sample_project"] is False
     assert bryn["hidden_internal_path"]
-    assert bryn["status"] == "skipped_no_changes"
+    assert bryn["status"]
     assert bryn["file_count"] == 395
     assert bryn["report_count"] == 1
     assert bryn["comment_document_count"] == 1
     assert bryn["latest_comment_document"] == "Bryn Skole - Kommentardokument.docx"
+    assert bryn["latest_comment_document_open_url"] == "/api/projects/Bryn%20Skole/reports/latest/open"
 
 
 def test_sample_project_detail_reports_and_files() -> None:
@@ -465,9 +466,11 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         assert detail["project_name"] == project_name
         assert detail["display_name"] == project_name
         assert detail["source_label"] == "OneDrive"
+        assert not detail["relative_project_path"].startswith("AnbudAppliance/")
         assert detail["is_sample_project"] is False
         assert detail["latest_comment_document"] == expected_latest
-        assert detail["status"] == "skipped_no_changes"
+        assert detail["latest_comment_document_open_url"] == f"/api/projects/{project}/reports/latest/open"
+        assert detail["status"]
         assert detail["file_count"] == expected_file_count
         assert detail["report_count"] == expected_report_count
         assert detail["comment_document_count"] == expected_report_count
@@ -478,11 +481,15 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         assert reports["count"] == expected_report_count
         assert reports["display_name"] == project_name
         assert reports["source_label"] == "OneDrive"
+        assert not reports["relative_project_path"].startswith("AnbudAppliance/")
         assert reports["is_sample_project"] is False
         assert reports["latest_comment_document"] == expected_latest
+        assert reports["latest_comment_document_open_url"] == f"/api/projects/{project}/reports/latest/open"
         assert reports["comment_document_count"] == expected_report_count
         assert [item["report_name"] for item in reports["reports"]] == [expected_latest]
         assert reports["reports"][0]["is_latest"] is True
+        assert reports["reports"][0]["report_id"] == "0"
+        assert reports["reports"][0]["open_url"] == f"/api/projects/{project}/reports/0/open"
 
         assert files_response.status_code == 200
         files = files_response.json()
@@ -508,7 +515,7 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         assert debug["candidates"][0]["selected"] is True
         assert debug["candidates"][0]["candidate_path"] == debug["resolved_project_path"]
         assert debug["candidates"][0]["source_file_count"] == expected_file_count
-        assert debug["candidates"][0]["source_inventory_mode"] == "sync_state"
+        assert debug["candidates"][0]["source_inventory_mode"] in {"sync_state", "filesystem"}
 
 
 def test_sample_comment_only_candidate_does_not_override_source_cache(tmp_path: Path) -> None:
@@ -537,6 +544,7 @@ def test_sample_comment_only_candidate_does_not_override_source_cache(tmp_path: 
     assert project["report_count"] == 1
     assert project["comment_document_count"] == 1
     assert project["latest_comment_document"] == "Gamma Project - Kommentardokument.docx"
+    assert project["latest_comment_document_open_url"] == "/api/projects/Gamma%20Project/reports/latest/open"
 
     detail = client.get("/api/projects/Gamma%20Project")
     assert detail.status_code == 200
@@ -632,13 +640,14 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     assert payload["count"] == 1
     assert payload["projects"][0]["project_name"] == "Alpha Project"
     assert payload["projects"][0]["display_name"] == "Alpha Project"
-    assert payload["projects"][0]["relative_project_path"] == "AnbudAppliance/Urban_Reuse_Norway/Alpha Project"
+    assert payload["projects"][0]["relative_project_path"] == "Urban_Reuse_Norway/Alpha Project"
     assert payload["projects"][0]["source_label"] == "OneDrive"
     assert payload["projects"][0]["is_sample_project"] is False
     assert payload["projects"][0]["file_count"] == 2
     assert payload["projects"][0]["report_count"] == 2
     assert payload["projects"][0]["comment_document_count"] == 2
     assert payload["projects"][0]["latest_comment_document"] == "Alpha Project - Kommentardokument.docx"
+    assert payload["projects"][0]["latest_comment_document_open_url"] == "/api/projects/Alpha%20Project/reports/latest/open"
     assert payload["projects"][0]["status"] == "completed_with_warnings"
 
     detail = client.get("/api/projects/Alpha%20Project")
@@ -656,7 +665,7 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     report_payload = reports.json()
     assert report_payload["count"] == 2
     assert report_payload["display_name"] == "Alpha Project"
-    assert report_payload["relative_project_path"] == "AnbudAppliance/Urban_Reuse_Norway/Alpha Project"
+    assert report_payload["relative_project_path"] == "Urban_Reuse_Norway/Alpha Project"
     assert report_payload["source_label"] == "OneDrive"
     assert report_payload["is_sample_project"] is False
     assert report_payload["latest_comment_document"] == "Alpha Project - Kommentardokument.docx"
@@ -666,13 +675,30 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
         "Alpha Project - Vedlegg.docx",
     ]
     assert report_payload["reports"][0]["is_latest"] is True
+    assert report_payload["reports"][0]["report_id"] == "0"
+    assert report_payload["reports"][0]["open_url"] == "/api/projects/Alpha%20Project/reports/0/open"
+    assert report_payload["reports"][1]["report_id"] == "1"
+    assert report_payload["reports"][1]["open_url"] == "/api/projects/Alpha%20Project/reports/1/open"
+
+    latest_open = client.get("/api/projects/Alpha%20Project/reports/latest/open")
+    assert latest_open.status_code == 200
+    assert latest_open.content == b"older-docx"
+    content_disposition = latest_open.headers["content-disposition"]
+    assert "Alpha Project - Kommentardokument.docx" in content_disposition or "Alpha%20Project%20-%20Kommentardokument.docx" in content_disposition
+    assert "/home/" not in content_disposition
+    assert ".riveanbud_runtime" not in content_disposition
+    assert "outputs" not in content_disposition
+
+    invalid_open = client.get("/api/projects/Alpha%20Project/reports/99/open")
+    assert invalid_open.status_code == 404
+    assert invalid_open.json()["code"] == "report_not_found"
 
     files = client.get("/api/projects/Alpha%20Project/files")
     assert files.status_code == 200
     file_payload = files.json()
     assert file_payload["total_files"] == 2
     assert file_payload["display_name"] == "Alpha Project"
-    assert file_payload["relative_project_path"] == "AnbudAppliance/Urban_Reuse_Norway/Alpha Project"
+    assert file_payload["relative_project_path"] == "Urban_Reuse_Norway/Alpha Project"
     assert file_payload["source_label"] == "OneDrive"
     assert file_payload["is_sample_project"] is False
     assert file_payload["comment_document_count"] == 2

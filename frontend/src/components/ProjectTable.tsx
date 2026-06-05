@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { formatDateTime, projectUrl } from "../lib/api";
-import { projectActivityTimestamp, sortProjectsByActivity } from "../lib/projects";
+import { displayProjectPath, projectActivityTimestamp, sortProjectsByActivity } from "../lib/projects";
 import type { ProjectSummary } from "../types";
 import { StatusPill } from "./StatusPill";
 
@@ -8,6 +8,7 @@ interface ProjectTableProps {
   projects: ProjectSummary[];
   compact?: boolean;
   showActions?: boolean;
+  showLatestCommentAction?: boolean;
   emptyLabel?: string;
 }
 
@@ -30,8 +31,15 @@ function formatFileCount(project: ProjectSummary): { value: string; note: string
   };
 }
 
-export function ProjectTable({ projects, compact = false, showActions = true, emptyLabel = "Ingen prosjekter å vise." }: ProjectTableProps) {
+export function ProjectTable({
+  projects,
+  compact = false,
+  showActions = true,
+  showLatestCommentAction = false,
+  emptyLabel = "Ingen prosjekter å vise.",
+}: ProjectTableProps) {
   const sortedProjects = sortProjectsByActivity(projects);
+  const hasActionColumn = showActions || showLatestCommentAction;
 
   if (sortedProjects.length === 0) {
     return <div className="empty-state empty-state--inline">{emptyLabel}</div>;
@@ -47,12 +55,17 @@ export function ProjectTable({ projects, compact = false, showActions = true, em
             <th>Sist synket/endret</th>
             <th>Siste kommentardokument</th>
             <th>Status</th>
-            {showActions ? <th>Handlinger</th> : null}
+            {hasActionColumn ? <th>Handlinger</th> : null}
           </tr>
         </thead>
         <tbody>
           {sortedProjects.map((project) => (
-            <ProjectTableRow key={project.project_name} project={project} showActions={showActions} />
+            <ProjectTableRow
+              key={project.project_name}
+              project={project}
+              showActions={showActions}
+              showLatestCommentAction={showLatestCommentAction}
+            />
           ))}
         </tbody>
       </table>
@@ -60,14 +73,24 @@ export function ProjectTable({ projects, compact = false, showActions = true, em
   );
 }
 
-function ProjectTableRow({ project, showActions }: { project: ProjectSummary; showActions: boolean }) {
+function ProjectTableRow({
+  project,
+  showActions,
+  showLatestCommentAction,
+}: {
+  project: ProjectSummary;
+  showActions: boolean;
+  showLatestCommentAction: boolean;
+}) {
   const fileCount = formatFileCount(project);
+  const latestCommentOpenUrl = project.latest_comment_document ? project.latest_comment_document_open_url : null;
+  const hasActionColumn = showActions || showLatestCommentAction;
 
   return (
     <tr className={project.is_sample_project ? "project-table__row--sample" : ""}>
       <td>
         <div className="project-table__name">{project.display_name}</div>
-        <div className="project-table__subline">{project.relative_project_path}</div>
+        <div className="project-table__subline">{displayProjectPath(project.relative_project_path)}</div>
       </td>
       <td>
         <div className="project-table__name">{fileCount.value}</div>
@@ -83,18 +106,27 @@ function ProjectTableRow({ project, showActions }: { project: ProjectSummary; sh
       <td>
         <StatusPill status={project.status} />
       </td>
-      {showActions ? (
+      {hasActionColumn ? (
         <td>
           <div className="project-table__actions">
-            <Link className="button button--subtle" to={projectUrl(project.project_name)}>
-              Åpne
-            </Link>
-            <Link className="button button--subtle" to={projectUrl(project.project_name, "files")}>
-              Filer
-            </Link>
-            <Link className="button button--subtle" to={projectUrl(project.project_name, "reports")}>
-              Rapporter
-            </Link>
+            {showLatestCommentAction && latestCommentOpenUrl ? (
+              <a className="button button--subtle" href={latestCommentOpenUrl} target="_blank" rel="noreferrer">
+                Åpne kommentardokument
+              </a>
+            ) : null}
+            {showActions ? (
+              <>
+                <Link className="button button--subtle" to={projectUrl(project.project_name)}>
+                  Åpne
+                </Link>
+                <Link className="button button--subtle" to={projectUrl(project.project_name, "files")}>
+                  Filer
+                </Link>
+                <Link className="button button--subtle" to={projectUrl(project.project_name, "reports")}>
+                  Rapporter
+                </Link>
+              </>
+            ) : null}
           </div>
         </td>
       ) : null}

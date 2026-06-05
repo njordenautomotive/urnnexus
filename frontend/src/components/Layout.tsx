@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAppData } from "../context/AppDataContext";
+import { displayProjectPath } from "../lib/projects";
 import { StatusPill } from "./StatusPill";
 
 export function AppLayout() {
@@ -88,7 +89,7 @@ export function ProjectHeader({
         <div className="project-header__eyebrow">
           <span>{sourceLabel}</span>
           <span>·</span>
-          <span>{relativeProjectPath}</span>
+          <span>{displayProjectPath(relativeProjectPath)}</span>
         </div>
         <h1 className="project-header__title">{title}</h1>
         <div className="project-header__meta">

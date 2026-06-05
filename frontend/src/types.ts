@@ -22,6 +22,7 @@ export interface ProjectSummary {
   hidden_internal_path: string;
   last_synced_at: string | null;
   latest_comment_document: string | null;
+  latest_comment_document_open_url: string | null;
   latest_comment_modified_at: string | null;
   comment_document_count: number;
   is_sample_project: boolean;
@@ -55,12 +56,14 @@ export interface ProjectAnalysisInfo {
 }
 
 export interface ProjectReport {
+  report_id: string;
   report_name: string;
   report_path: string;
   report_type: string;
   modified_at: string;
   size_bytes: number;
   is_latest: boolean;
+  open_url: string;
 }
 
 export interface CountFacet {
@@ -93,6 +96,7 @@ export interface ProjectFilesResponse {
   hidden_internal_path: string;
   last_synced_at: string | null;
   latest_comment_document: string | null;
+  latest_comment_document_open_url: string | null;
   latest_comment_modified_at: string | null;
   comment_document_count: number;
   is_sample_project: boolean;
@@ -112,6 +116,7 @@ export interface ProjectReportsResponse {
   hidden_internal_path: string;
   last_synced_at: string | null;
   latest_comment_document: string | null;
+  latest_comment_document_open_url: string | null;
   latest_comment_modified_at: string | null;
   comment_document_count: number;
   is_sample_project: boolean;

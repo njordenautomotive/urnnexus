@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterVisibleProjects } from "./projects";
+import { displayProjectPath, filterVisibleProjects } from "./projects";
 import type { ProjectSummary } from "../types";
 
 function makeProject(project_name: string, is_sample_project: boolean): ProjectSummary {
@@ -11,6 +11,7 @@ function makeProject(project_name: string, is_sample_project: boolean): ProjectS
     hidden_internal_path: is_sample_project ? `/home/anbudklient/appliance/sample_projects/${project_name}` : `/home/anbudklient/appliance/runtime/${project_name}`,
     last_synced_at: "2026-06-04T08:00:00+02:00",
     latest_comment_document: `${project_name} - Kommentardokument.docx`,
+    latest_comment_document_open_url: `/api/projects/${encodeURIComponent(project_name)}/reports/latest/open`,
     latest_comment_modified_at: "2026-06-04T08:15:00+02:00",
     comment_document_count: 1,
     is_sample_project,
@@ -36,5 +37,10 @@ describe("project visibility helpers", () => {
     const visible = filterVisibleProjects([makeProject("Bryn Skole", false), makeProject("Testprosjekt", true)], true);
 
     expect(visible).toHaveLength(2);
+  });
+
+  it("removes the appliance folder prefix from display paths", () => {
+    expect(displayProjectPath("AnbudAppliance/Urban_Reuse_Norway/Bryn Skole")).toBe("Urban_Reuse_Norway/Bryn Skole");
+    expect(displayProjectPath("sample_projects/Testprosjekt")).toBe("sample_projects/Testprosjekt");
   });
 });

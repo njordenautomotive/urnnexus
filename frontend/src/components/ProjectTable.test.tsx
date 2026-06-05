@@ -12,6 +12,7 @@ const project: ProjectSummary = {
   hidden_internal_path: "/home/anbudklient/appliance/.riveanbud_runtime/rive-anbud-appliance/Urban_Reuse_Norway/Bryn Skole",
   last_synced_at: "2026-06-04T08:00:00+02:00",
   latest_comment_document: "Bryn Skole - Kommentardokument.docx",
+  latest_comment_document_open_url: "/api/projects/Bryn%20Skole/reports/latest/open",
   latest_comment_modified_at: "2026-06-04T08:15:00+02:00",
   comment_document_count: 1,
   is_sample_project: false,

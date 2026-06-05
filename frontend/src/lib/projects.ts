@@ -17,6 +17,11 @@ export function projectActivityTimestamp(project: ProjectSummary): string | null
   return project.last_synced_at ?? project.latest_comment_modified_at ?? project.last_analyzed_at;
 }
 
+export function displayProjectPath(relativeProjectPath: string): string {
+  const prefix = "AnbudAppliance/";
+  return relativeProjectPath.startsWith(prefix) ? relativeProjectPath.slice(prefix.length) : relativeProjectPath;
+}
+
 export function sortProjectsByActivity(projects: ProjectSummary[]): ProjectSummary[] {
   return [...projects].sort((left, right) => {
     const leftTime = projectActivityTimestamp(left) ? Date.parse(projectActivityTimestamp(left) as string) : 0;

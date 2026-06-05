@@ -62,7 +62,13 @@ export function DashboardPage() {
         {isInitialProjectsLoad ? (
           <div className="loading-copy">Laster prosjekter …</div>
         ) : visibleProjects.length > 0 ? (
-          <ProjectTable projects={visibleProjects} compact showActions={false} emptyLabel="Ingen prosjekter å vise." />
+          <ProjectTable
+            projects={visibleProjects}
+            compact
+            showActions={false}
+            showLatestCommentAction
+            emptyLabel="Ingen prosjekter å vise."
+          />
         ) : (
           <EmptyState title="Ingen prosjekter" description="Dashboardet har ingen OneDrive-prosjekter å vise akkurat nå." />
         )}

@@ -4,6 +4,7 @@ import { ErrorState } from "../components/ErrorState";
 import { FileTree } from "../components/FileTree";
 import { formatDateTime, getProjectFiles } from "../lib/api";
 import { filterFileTree } from "../lib/fileTree";
+import { displayProjectPath } from "../lib/projects";
 import { useResource } from "../lib/useResource";
 import type { CountFacet } from "../types";
 import { useProjectPageContext } from "./ProjectPage";
@@ -117,7 +118,7 @@ export function ProjectFilesPage() {
         <div className="detail-grid detail-grid--compact">
           <div className="detail-card">
             <span>Relativ sti</span>
-            <strong>{files.relative_project_path}</strong>
+            <strong>{displayProjectPath(files.relative_project_path)}</strong>
           </div>
           <div className="detail-card">
             <span>Siste kommentardokument</span>

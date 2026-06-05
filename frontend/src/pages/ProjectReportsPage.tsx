@@ -1,6 +1,7 @@
 import { ErrorState } from "../components/ErrorState";
 import { ReportTable } from "../components/ReportTable";
 import { formatBytes, formatDateTime, getProjectReports } from "../lib/api";
+import { displayProjectPath } from "../lib/projects";
 import { useResource } from "../lib/useResource";
 import { useProjectPageContext } from "./ProjectPage";
 
@@ -56,7 +57,7 @@ export function ProjectReportsPage() {
           </div>
           <div className="detail-card">
             <span>Relativ sti</span>
-            <strong>{reports.relative_project_path}</strong>
+            <strong>{displayProjectPath(reports.relative_project_path)}</strong>
           </div>
           <div className="detail-card">
             <span>Siste kommentardokument</span>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import FileResponse
 
 from backend.app.models.health import HealthResponse
 from backend.app.models.project import (
@@ -17,6 +18,15 @@ from backend.app.services.appliance import ApplianceService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["appliance"])
+
+
+def _report_media_type(filename: str) -> str:
+    suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if suffix == "docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if suffix == "pdf":
+        return "application/pdf"
+    return "application/octet-stream"
 
 
 def get_service(request: Request) -> ApplianceService:
@@ -41,6 +51,16 @@ def get_project(project_name: str, service: ApplianceService = Depends(get_servi
 @router.get("/projects/{project_name}/reports", response_model=ProjectReportsResponse)
 def get_reports(project_name: str, service: ApplianceService = Depends(get_service)) -> ProjectReportsResponse:
     return service.list_reports(project_name)
+
+
+@router.get("/projects/{project_name}/reports/{report_id}/open")
+def open_report(project_name: str, report_id: str, service: ApplianceService = Depends(get_service)) -> FileResponse:
+    report = service.open_report(project_name, report_id)
+    return FileResponse(
+        report.report_path,
+        filename=report.report_name,
+        media_type=_report_media_type(report.report_name),
+    )
 
 
 @router.get("/projects/{project_name}/files", response_model=ProjectFilesResponse)

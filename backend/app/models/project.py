@@ -9,12 +9,14 @@ from .common import ApiModel
 
 
 class ProjectReport(ApiModel):
+    report_id: str = ""
     report_name: str
     report_path: Path
     report_type: str
     modified_at: datetime
     size_bytes: int
     is_latest: bool = False
+    open_url: str = ""
 
 
 class ProjectUiFields(ApiModel):
@@ -24,6 +26,7 @@ class ProjectUiFields(ApiModel):
     hidden_internal_path: Path
     last_synced_at: datetime | None = None
     latest_comment_document: str | None = None
+    latest_comment_document_open_url: str | None = None
     latest_comment_modified_at: datetime | None = None
     comment_document_count: int = 0
     is_sample_project: bool = False

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { formatDateTime, projectUrl } from "../lib/api";
+import { displayProjectPath } from "../lib/projects";
 import type { ProjectSummary } from "../types";
 import { StatusPill } from "./StatusPill";
 
@@ -13,7 +14,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
       <div className="project-card__header">
         <div>
           <div className="project-card__title">{project.project_name}</div>
-          <div className="project-card__path">{project.relative_project_path}</div>
+          <div className="project-card__path">{displayProjectPath(project.relative_project_path)}</div>
         </div>
         <StatusPill status={project.status} />
       </div>

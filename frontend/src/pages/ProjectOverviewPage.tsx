@@ -1,6 +1,7 @@
 import { EmptyState } from "../components/EmptyState";
 import { StatusPill } from "../components/StatusPill";
 import { formatDateTime } from "../lib/api";
+import { displayProjectPath } from "../lib/projects";
 import { useProjectPageContext } from "./ProjectPage";
 
 function infoValue(value: string | null | undefined): string {
@@ -32,7 +33,7 @@ export function ProjectOverviewPage() {
           </div>
           <div className="detail-card">
             <span>Sti</span>
-            <strong>{project.relative_project_path}</strong>
+            <strong>{displayProjectPath(project.relative_project_path)}</strong>
           </div>
           <div className="detail-card">
             <span>Status</span>
