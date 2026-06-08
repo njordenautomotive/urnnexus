@@ -13,9 +13,15 @@ from backend.app.models.common import ApiError
 from backend.app.services.appliance import (
     ApplianceService,
     ApplianceUnavailableError,
+    OneDriveGraphWriteUnavailableError,
+    OneDriveProjectWriter,
     ProjectAmbiguousError,
+    ProjectFileNotFoundError,
     ProjectNotFoundError,
     ProjectReportNotFoundError,
+    ProjectSyncError,
+    ProjectWriteError,
+    SyncOnlyUnavailableError,
 )
 
 
@@ -30,11 +36,11 @@ def _configure_logging() -> None:
     )
 
 
-def create_app(settings: ApplianceSettings | None = None) -> FastAPI:
+def create_app(settings: ApplianceSettings | None = None, *, onedrive_writer: OneDriveProjectWriter | None = None) -> FastAPI:
     _configure_logging()
     app = FastAPI(title="URN Nexus Web", version="0.1.0")
     resolved_settings = settings or ApplianceSettings()
-    app.state.appliance_service = ApplianceService(resolved_settings)
+    app.state.appliance_service = ApplianceService(resolved_settings, onedrive_writer=onedrive_writer)
 
     @app.get("/")
     def root() -> dict[str, Any]:
@@ -55,6 +61,30 @@ def create_app(settings: ApplianceSettings | None = None) -> FastAPI:
     @app.exception_handler(ProjectReportNotFoundError)
     async def project_report_not_found_handler(_: Request, exc: ProjectReportNotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content=ApiError(code="report_not_found", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ProjectFileNotFoundError)
+    async def project_file_not_found_handler(_: Request, exc: ProjectFileNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content=ApiError(code="file_not_found", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ProjectWriteError)
+    async def project_write_error_handler(_: Request, exc: ProjectWriteError) -> JSONResponse:
+        return JSONResponse(status_code=400, content=ApiError(code="write_error", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(OneDriveGraphWriteUnavailableError)
+    async def graph_write_unavailable_handler(_: Request, exc: OneDriveGraphWriteUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=503, content=ApiError(code="graph_write_unavailable", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ProjectSyncError)
+    async def project_sync_error_handler(_: Request, exc: ProjectSyncError) -> JSONResponse:
+        return JSONResponse(status_code=503, content=ApiError(code="project_sync_failed", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(SyncOnlyUnavailableError)
+    async def sync_only_unavailable_handler(_: Request, exc: SyncOnlyUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=503, content=ApiError(code="sync_only_unavailable", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ValueError)
+    async def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(status_code=400, content=ApiError(code="bad_request", detail=str(exc)).model_dump(mode="json"))
 
     @app.exception_handler(ApplianceUnavailableError)
     async def appliance_unavailable_handler(_: Request, exc: ApplianceUnavailableError) -> JSONResponse:

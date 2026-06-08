@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayProjectPath, filterVisibleProjects } from "./projects";
+import { createProjectViewModel, displayProjectPath, filterVisibleProjects } from "./projects";
 import type { ProjectSummary } from "../types";
 
 function makeProject(project_name: string, is_sample_project: boolean): ProjectSummary {
@@ -12,6 +12,7 @@ function makeProject(project_name: string, is_sample_project: boolean): ProjectS
     last_synced_at: "2026-06-04T08:00:00+02:00",
     latest_comment_document: `${project_name} - Kommentardokument.docx`,
     latest_comment_document_open_url: `/api/projects/${encodeURIComponent(project_name)}/reports/latest/open`,
+    latest_comment_created_at: "2026-06-04T08:15:00+02:00",
     latest_comment_modified_at: "2026-06-04T08:15:00+02:00",
     comment_document_count: 1,
     is_sample_project,
@@ -33,6 +34,18 @@ describe("project visibility helpers", () => {
     expect(visible[0].project_name).toBe("Bryn Skole");
   });
 
+  it("filters local-only cache projects out of the standard view", () => {
+    const localOnlyProject = {
+      ...makeProject("Dette er bare en test", false),
+      source_label: "Kun lokal cache",
+      is_local_cache_only: true,
+    };
+    const visible = filterVisibleProjects([makeProject("Bryn Skole", false), localOnlyProject]);
+
+    expect(visible).toHaveLength(1);
+    expect(visible[0].project_name).toBe("Bryn Skole");
+  });
+
   it("can keep sample projects in dev mode", () => {
     const visible = filterVisibleProjects([makeProject("Bryn Skole", false), makeProject("Testprosjekt", true)], true);
 
@@ -42,5 +55,59 @@ describe("project visibility helpers", () => {
   it("removes the appliance folder prefix from display paths", () => {
     expect(displayProjectPath("AnbudAppliance/Urban_Reuse_Norway/Bryn Skole")).toBe("Urban_Reuse_Norway/Bryn Skole");
     expect(displayProjectPath("sample_projects/Testprosjekt")).toBe("sample_projects/Testprosjekt");
+  });
+
+  it("maps raw API status and report counts into one shared status model", () => {
+    expect(createProjectViewModel(makeProject("Ferdig", false)).status.level).toBe("SUCCESS");
+    expect(createProjectViewModel({ ...makeProject("Varsel", false), status: "completed_with_warnings" }).status.level).toBe("SUCCESS_WITH_WARNINGS");
+    expect(createProjectViewModel({ ...makeProject("Kjører", false), status: "running" }).status.level).toBe("RUNNING");
+    expect(createProjectViewModel({ ...makeProject("Venter", false), status: "pending", report_count: 0, comment_document_count: 0 }).status.level).toBe("PENDING");
+    expect(createProjectViewModel({ ...makeProject("Ingen rapport", false), status: "unknown", report_count: 0, comment_document_count: 0 }).status.level).toBe("NO_REPORT");
+    expect(createProjectViewModel({ ...makeProject("Feil", false), status: "failed" }).status.level).toBe("FAILED");
+  });
+
+  it("translates technical warnings but keeps details available", () => {
+    const viewModel = createProjectViewModel({
+      ...makeProject("Bryn Skole", false),
+      file_count: 0,
+      report_count: 0,
+      comment_document_count: 0,
+      latest_comment_document: null,
+      latest_comment_document_open_url: null,
+      latest_comment_created_at: null,
+      latest_comment_modified_at: null,
+      warnings: [
+        "Project root is missing on disk.",
+        "Referenced report path is missing on disk.",
+        "Remote report URL recorded in appliance state.",
+      ],
+    });
+
+    expect(viewModel.warnings.map((warning) => warning.message)).toEqual([
+      "Lokal cache mangler prosjektmappe.",
+      "Rapport finnes i OneDrive men lokal kopi er ikke tilgjengelig.",
+      "Rapport finnes kun som ekstern URL.",
+    ]);
+    expect(viewModel.warnings[0].technicalDetails).toEqual(["Project root is missing on disk."]);
+  });
+
+  it("keeps cache-only technical warnings out of the user-facing issue list when content is available", () => {
+    const viewModel = createProjectViewModel({
+      ...makeProject("Bryn Skole", false),
+      status: "completed_with_warnings",
+      warnings: [
+        "Project root is missing on disk.",
+        "Referenced report path is missing on disk.",
+        "Remote report URL recorded in appliance state.",
+      ],
+    });
+
+    expect(viewModel.status.level).toBe("SUCCESS_WITH_WARNINGS");
+    expect(viewModel.warnings).toEqual([]);
+    expect(viewModel.technicalWarnings).toEqual([
+      "Project root is missing on disk.",
+      "Referenced report path is missing on disk.",
+      "Remote report URL recorded in appliance state.",
+    ]);
   });
 });

@@ -51,3 +51,35 @@ export function countFilesInTree(node: FileNode): number {
   }
   return node.children.reduce((total, child) => total + countFilesInTree(child), 0);
 }
+
+export interface FlatFileRecord {
+  name: string;
+  path: string;
+  displayName: string;
+  extension: string;
+  folderCategory: string | null;
+  sizeBytes: number | null;
+  modifiedAt: string | null;
+  openUrl: string | null;
+  downloadUrl: string | null;
+}
+
+export function flattenFileTree(node: FileNode): FlatFileRecord[] {
+  if (node.kind === "file") {
+    return [
+      {
+        name: node.name,
+        path: node.relative_path || node.path,
+        displayName: node.display_name || node.name,
+        extension: node.extension ?? "",
+        folderCategory: node.folder_category,
+        sizeBytes: node.size_bytes,
+        modifiedAt: node.modified_at,
+        openUrl: node.open_url ?? null,
+        downloadUrl: node.download_url ?? null,
+      },
+    ];
+  }
+
+  return node.children.flatMap((child) => flattenFileTree(child));
+}

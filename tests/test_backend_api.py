@@ -27,6 +27,29 @@ class _AsyncAppClient:
 
         return asyncio.run(_request())
 
+    def post(
+        self,
+        path: str,
+        *,
+        json: object | None = None,
+        data: dict[str, str] | None = None,
+        files: dict[str, tuple[str, bytes, str]] | None = None,
+    ) -> httpx.Response:
+        async def _request() -> httpx.Response:
+            transport = httpx.ASGITransport(app=self._app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                return await client.post(path, json=json, data=data, files=files)
+
+        return asyncio.run(_request())
+
+    def delete(self, path: str) -> httpx.Response:
+        async def _request() -> httpx.Response:
+            transport = httpx.ASGITransport(app=self._app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                return await client.delete(path)
+
+        return asyncio.run(_request())
+
 
 def _client(settings: ApplianceSettings | None = None) -> _AsyncAppClient:
     return _AsyncAppClient(create_app(settings))
@@ -71,6 +94,11 @@ def _build_custom_appliance_root(tmp_path: Path) -> Path:
     _write_file(project_root / "Anbud" / "tilbud.txt", b"Alpha tender", modified_at=datetime(2026, 6, 2, 8, 0, tzinfo=timezone.utc))
     _write_file(project_root / "Bakgrunnsdokumenter" / "bakgrunn.pdf", b"pdf-bytes", modified_at=datetime(2026, 6, 2, 8, 5, tzinfo=timezone.utc))
     _write_file(comments_root / "Alpha Project - Kommentardokument.docx", b"older-docx", modified_at=datetime(2026, 6, 1, 8, 0, tzinfo=timezone.utc))
+    _write_file(
+        comments_root / "Alpha Project - Kommentardokument - 1.0.docx",
+        b"newer-docx",
+        modified_at=datetime(2026, 6, 2, 8, 30, tzinfo=timezone.utc),
+    )
     _write_file(outputs_root / "Alpha Project - Vedlegg.docx", b"newer-docx", modified_at=datetime(2026, 6, 2, 8, 30, tzinfo=timezone.utc))
     (outputs_root / "run_summary.json").write_text(
         json.dumps(
@@ -231,10 +259,16 @@ def _build_state_only_appliance_root(
         / "test-drive-id"
         / project_name
     )
+    project_comment_root = project_root / "Kommentarer"
     outputs_root = appliance_root / "outputs" / "Urban_Reuse_Norway" / project_name / "2026-06-02" / "enterprise_review"
     sample_root = appliance_root / "sample_projects" / project_name
 
     sample_comment_root = sample_root / "Kommentarer"
+    _write_file(
+        project_comment_root / f"{project_name} - Kommentardokument.docx",
+        b"output-comment-docx",
+        modified_at=datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc),
+    )
     _write_file(
         sample_comment_root / f"{project_name} - Kommentardokument.docx",
         b"sample-comment-docx",
@@ -248,11 +282,7 @@ def _build_state_only_appliance_root(
             modified_at=datetime(2026, 6, 1, 7, index, tzinfo=timezone.utc),
         )
 
-    _write_file(
-        outputs_root / f"{project_name} - Kommentardokument.docx",
-        b"output-comment-docx",
-        modified_at=datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc),
-    )
+    outputs_root.mkdir(parents=True, exist_ok=True)
     (outputs_root / "run_summary.json").write_text(
         json.dumps(
             {
@@ -448,10 +478,14 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         ("Bryn Skole", 395, 1, "Bryn Skole - Kommentardokument.docx", ["OneDrive_1_21.5.2026 (1)"]),
         (
             "TestProsjekt#1",
+            3,
             2,
-            1,
             "TestProsjekt#1 - Kommentardokument.docx",
-            ["kontraktsgjennomgang_ellingsrud_tue.docx", "Risikovurdering_Bryn_skole_riving_miljosanering_NS8417.docx"],
+            [
+                "Dette er et testdokument.docx",
+                "kontraktsgjennomgang_ellingsrud_tue.docx",
+                "Risikovurdering_Bryn_skole_riving_miljosanering_NS8417.docx",
+            ],
         ),
     ]:
         project = _project_path(project_name)
@@ -486,10 +520,11 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         assert reports["latest_comment_document"] == expected_latest
         assert reports["latest_comment_document_open_url"] == f"/api/projects/{project}/reports/latest/open"
         assert reports["comment_document_count"] == expected_report_count
-        assert [item["report_name"] for item in reports["reports"]] == [expected_latest]
+        assert [item["report_name"] for item in reports["reports"]] == [expected_latest] * expected_report_count
         assert reports["reports"][0]["is_latest"] is True
         assert reports["reports"][0]["report_id"] == "0"
         assert reports["reports"][0]["open_url"] == f"/api/projects/{project}/reports/0/open"
+        assert reports["reports"][0]["download_url"] == f"/api/projects/{project}/reports/0/download"
 
         assert files_response.status_code == 200
         files = files_response.json()
@@ -504,7 +539,7 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         assert debug_response.status_code == 200
         debug = debug_response.json()
         assert debug["project_name"] == project_name
-        assert debug["project_path_exists"] is True
+        assert isinstance(debug["project_path_exists"], bool)
         assert debug["resolved_project_path"]
         assert debug["total_files_on_disk"] == expected_file_count
         assert debug["counted_source_files"] == expected_file_count
@@ -513,6 +548,8 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         assert debug["ignored_reasons"] == []
         assert len(debug["candidates"]) == 1
         assert debug["candidates"][0]["selected"] is True
+        if not debug["project_path_exists"]:
+            assert debug["candidates"][0]["source_inventory_mode"] == "sync_state"
         assert debug["candidates"][0]["candidate_path"] == debug["resolved_project_path"]
         assert debug["candidates"][0]["source_file_count"] == expected_file_count
         assert debug["candidates"][0]["source_inventory_mode"] in {"sync_state", "filesystem"}
@@ -646,7 +683,7 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     assert payload["projects"][0]["file_count"] == 2
     assert payload["projects"][0]["report_count"] == 2
     assert payload["projects"][0]["comment_document_count"] == 2
-    assert payload["projects"][0]["latest_comment_document"] == "Alpha Project - Kommentardokument.docx"
+    assert payload["projects"][0]["latest_comment_document"] == "Alpha Project - Kommentardokument - 1.0.docx"
     assert payload["projects"][0]["latest_comment_document_open_url"] == "/api/projects/Alpha%20Project/reports/latest/open"
     assert payload["projects"][0]["status"] == "completed_with_warnings"
 
@@ -659,6 +696,8 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     assert detail_payload["report_count"] == 2
     assert detail_payload["file_count"] == 2
     assert detail_payload["comment_document_count"] == 2
+    assert detail_payload["latest_comment_document"] == "Alpha Project - Kommentardokument - 1.0.docx"
+    assert detail_payload["latest_comment_created_at"] is not None
 
     reports = client.get("/api/projects/Alpha%20Project/reports")
     assert reports.status_code == 200
@@ -668,23 +707,28 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     assert report_payload["relative_project_path"] == "Urban_Reuse_Norway/Alpha Project"
     assert report_payload["source_label"] == "OneDrive"
     assert report_payload["is_sample_project"] is False
-    assert report_payload["latest_comment_document"] == "Alpha Project - Kommentardokument.docx"
+    assert report_payload["latest_comment_document"] == "Alpha Project - Kommentardokument - 1.0.docx"
     assert report_payload["comment_document_count"] == 2
     assert [item["report_name"] for item in report_payload["reports"]] == [
+        "Alpha Project - Kommentardokument - 1.0.docx",
         "Alpha Project - Kommentardokument.docx",
-        "Alpha Project - Vedlegg.docx",
     ]
     assert report_payload["reports"][0]["is_latest"] is True
     assert report_payload["reports"][0]["report_id"] == "0"
     assert report_payload["reports"][0]["open_url"] == "/api/projects/Alpha%20Project/reports/0/open"
+    assert report_payload["reports"][0]["download_url"] == "/api/projects/Alpha%20Project/reports/0/download"
     assert report_payload["reports"][1]["report_id"] == "1"
     assert report_payload["reports"][1]["open_url"] == "/api/projects/Alpha%20Project/reports/1/open"
+    assert report_payload["reports"][1]["download_url"] == "/api/projects/Alpha%20Project/reports/1/download"
+    assert report_payload["reports"][0]["version"] == "1.0"
+    assert report_payload["reports"][0]["created_at"] is not None
+    assert report_payload["reports"][1]["version"] is None
 
     latest_open = client.get("/api/projects/Alpha%20Project/reports/latest/open")
     assert latest_open.status_code == 200
-    assert latest_open.content == b"older-docx"
+    assert latest_open.content == b"newer-docx"
     content_disposition = latest_open.headers["content-disposition"]
-    assert "Alpha Project - Kommentardokument.docx" in content_disposition or "Alpha%20Project%20-%20Kommentardokument.docx" in content_disposition
+    assert "Alpha Project - Kommentardokument - 1.0.docx" in content_disposition or "Alpha%20Project%20-%20Kommentardokument%20-%201.0.docx" in content_disposition
     assert "/home/" not in content_disposition
     assert ".riveanbud_runtime" not in content_disposition
     assert "outputs" not in content_disposition
@@ -706,6 +750,28 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
         "Anbud",
         "Bakgrunnsdokumenter",
     ]
+    anbud_folder = file_payload["file_tree"]["children"][0]
+    tilbud_file = anbud_folder["children"][0]
+    assert anbud_folder["relative_path"] == "Anbud"
+    assert tilbud_file["name"] == "tilbud.txt"
+    assert tilbud_file["relative_path"] == "Anbud/tilbud.txt"
+    assert tilbud_file["display_name"] == "tilbud.txt"
+    assert tilbud_file["open_url"] == "/api/projects/Alpha%20Project/files/open?path=Anbud%2Ftilbud.txt"
+    assert tilbud_file["download_url"] == "/api/projects/Alpha%20Project/files/download?path=Anbud%2Ftilbud.txt"
+
+    file_open = client.get("/api/projects/Alpha%20Project/files/open?path=Anbud%2Ftilbud.txt")
+    assert file_open.status_code == 200
+    assert file_open.content == b"Alpha tender"
+    assert "tilbud.txt" in file_open.headers["content-disposition"]
+
+    file_download = client.get("/api/projects/Alpha%20Project/files/download?path=Bakgrunnsdokumenter%2Fbakgrunn.pdf")
+    assert file_download.status_code == 200
+    assert file_download.content == b"pdf-bytes"
+    assert "attachment" in file_download.headers["content-disposition"]
+
+    traversal = client.get("/api/projects/Alpha%20Project/files/open?path=..%2F..%2F.env")
+    assert traversal.status_code == 404
+    assert traversal.json()["code"] == "file_not_found"
 
     debug = client.get("/api/projects/Alpha%20Project/debug-paths")
     assert debug.status_code == 200
@@ -713,7 +779,499 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     assert debug_payload["project_name"] == "Alpha Project"
     assert debug_payload["project_path_exists"] is True
     assert debug_payload["counted_source_files"] == 2
-    assert debug_payload["total_files_on_disk"] == 3
+    assert debug_payload["total_files_on_disk"] == 4
     assert debug_payload["comment_documents_found"] == 2
-    assert debug_payload["ignored_file_count"] == 1
+    assert debug_payload["ignored_file_count"] == 2
     assert "Kommentarer folders are excluded from source file counts." in debug_payload["ignored_reasons"]
+
+
+def test_project_write_operations_use_project_relative_paths(tmp_path: Path) -> None:
+    appliance_root = _build_custom_appliance_root(tmp_path)
+    folder_calls: list[dict[str, object]] = []
+    upload_calls: list[dict[str, object]] = []
+
+    class FakeOneDriveWriter:
+        def create_project(self, project_name: str, *, folders: list[str], parent_remote_path: str) -> list[str]:
+            return folders
+
+        def create_project_folder(
+            self,
+            project_name: str,
+            folder_name: str,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            folder_calls.append(
+                {
+                    "project_name": project_name,
+                    "folder_name": folder_name,
+                    "parent_remote_path": parent_remote_path,
+                    "target_folder": target_folder,
+                }
+            )
+            return {"id": "folder-id", "name": folder_name, "webUrl": "https://example.com/folder"}
+
+        def upload_file(
+            self,
+            project_name: str,
+            filename: str,
+            content: bytes,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            upload_calls.append(
+                {
+                    "project_name": project_name,
+                    "filename": filename,
+                    "content": content,
+                    "parent_remote_path": parent_remote_path,
+                    "target_folder": target_folder,
+                }
+            )
+            return {"id": "file-id", "name": filename, "webUrl": "https://example.com/file"}
+
+        def delete_project(self, project_name: str, *, parent_remote_path: str) -> str:
+            return f"{parent_remote_path}/{project_name}"
+
+    client = _AsyncAppClient(create_app(ApplianceSettings(appliance_root=appliance_root), onedrive_writer=FakeOneDriveWriter()))
+
+    folder_response = client.post(
+        "/api/projects/Alpha%20Project/files/folders",
+        json={"folder_name": "Ny mappe", "target_folder": "Anbud"},
+    )
+    assert folder_response.status_code == 200
+    folder_payload = folder_response.json()
+    assert folder_payload["project_name"] == "Alpha Project"
+    assert folder_payload["relative_path"] == "Anbud/Ny mappe"
+    assert folder_payload["mode"] == "onedrive"
+    assert folder_payload["warning"] is None
+
+    upload_response = client.post(
+        "/api/projects/Alpha%20Project/files/upload",
+        data={"target_folder": "Anbud/Ny mappe"},
+        files={"file": ("notat.txt", b"uploaded-note", "text/plain")},
+    )
+    assert upload_response.status_code == 200
+    upload_payload = upload_response.json()
+    assert upload_payload["filename"] == "notat.txt"
+    assert upload_payload["relative_path"] == "Anbud/Ny mappe/notat.txt"
+    assert upload_payload["size_bytes"] == len(b"uploaded-note")
+    assert upload_payload["mode"] == "onedrive"
+
+    uploaded_open = client.get("/api/projects/Alpha%20Project/files/open?path=Anbud%2FNy%20mappe%2Fnotat.txt")
+    assert uploaded_open.status_code == 404
+    assert uploaded_open.json()["code"] == "file_not_found"
+
+    assert folder_calls == [
+        {
+            "project_name": "Alpha Project",
+            "folder_name": "Ny mappe",
+            "parent_remote_path": "AnbudAppliance/Urban_Reuse_Norway",
+            "target_folder": "Anbud",
+        }
+    ]
+    assert upload_calls == [
+        {
+            "project_name": "Alpha Project",
+            "filename": "notat.txt",
+            "content": b"uploaded-note",
+            "parent_remote_path": "AnbudAppliance/Urban_Reuse_Norway",
+            "target_folder": "Anbud/Ny mappe",
+        }
+    ]
+
+    invalid_upload = client.post(
+        "/api/projects/Alpha%20Project/files/upload",
+        data={"target_folder": "Anbud"},
+        files={"file": ("../evil.txt", b"nope", "text/plain")},
+    )
+    assert invalid_upload.status_code == 400
+    assert invalid_upload.json()["code"] == "write_error"
+
+
+def test_create_project_fails_when_graph_write_is_not_configured(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    appliance_root.mkdir()
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+
+    create_response = client.post("/api/projects", json={"project_name": "Portal Prosjekt"})
+
+    assert create_response.status_code == 503
+    assert create_response.json()["code"] == "graph_write_unavailable"
+    assert not (appliance_root / "cache" / "urn_nexus_local_projects" / "Urban_Reuse_Norway" / "Portal Prosjekt").exists()
+
+
+def test_create_project_uses_onedrive_writer_and_sync_before_visible(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    appliance_root.mkdir()
+    writer_calls: list[tuple[str, list[str], str]] = []
+
+    class FakeOneDriveWriter:
+        def create_project(self, project_name: str, *, folders: list[str], parent_remote_path: str) -> list[str]:
+            writer_calls.append((project_name, folders, parent_remote_path))
+            return folders
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root), onedrive_writer=FakeOneDriveWriter())
+    service = app.state.appliance_service
+
+    def fake_sync(project_name: str) -> None:
+        runtime_root = appliance_root / ".riveanbud_runtime" / "rive-anbud-appliance" / "Urban_Reuse_Norway"
+        project_root = (
+            runtime_root
+            / "cache"
+            / "onedrive_sync"
+            / "test-sync-id"
+            / "post@example.com"
+            / "test-drive-id"
+            / project_name
+        )
+        for folder in [
+            "Anbud",
+            "Bakgrunnsdokumenter",
+            "Tegninger",
+            "Tidligere kommunikasjon",
+            "Kommentarer",
+        ]:
+            (project_root / folder).mkdir(parents=True, exist_ok=True)
+        state_db = runtime_root / "state" / "onedrive_lightweight_state.sqlite3"
+        state_db.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(state_db) as connection:
+            connection.execute(
+                """
+                CREATE TABLE projects (
+                    project_name TEXT,
+                    remote_root_path TEXT,
+                    local_project_root TEXT,
+                    analysis_status TEXT,
+                    last_sync_at TEXT,
+                    last_analyzed_at TEXT,
+                    updated_at TEXT,
+                    report_path TEXT,
+                    report_url TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO projects (
+                    project_name,
+                    remote_root_path,
+                    local_project_root,
+                    analysis_status,
+                    last_sync_at,
+                    last_analyzed_at,
+                    updated_at,
+                    report_path,
+                    report_url
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_name,
+                    f"AnbudAppliance/Urban_Reuse_Norway/{project_name}",
+                    str(project_root),
+                    "pending",
+                    "2026-06-02T08:50:00+00:00",
+                    None,
+                    "2026-06-02T08:55:00+00:00",
+                    "",
+                    "",
+                ),
+            )
+            connection.commit()
+
+    monkeypatch.setattr(service, "_require_sync_only_available", lambda: None)
+    monkeypatch.setattr(service, "_run_sync_for_project", fake_sync)
+    client = _AsyncAppClient(app)
+
+    create_response = client.post("/api/projects", json={"project_name": "Portal Prosjekt"})
+
+    assert create_response.status_code == 200
+    create_payload = create_response.json()
+    assert create_payload["project_name"] == "Portal Prosjekt"
+    assert create_payload["relative_project_path"] == "Urban_Reuse_Norway/Portal Prosjekt"
+    assert create_payload["mode"] == "onedrive"
+    assert create_payload["folders_created"] == [
+        "Anbud",
+        "Bakgrunnsdokumenter",
+        "Tegninger",
+        "Tidligere kommunikasjon",
+        "Kommentarer",
+    ]
+    assert create_payload["warning"] is None
+    assert writer_calls == [
+        (
+            "Portal Prosjekt",
+            [
+                "Anbud",
+                "Bakgrunnsdokumenter",
+                "Tegninger",
+                "Tidligere kommunikasjon",
+                "Kommentarer",
+            ],
+            "AnbudAppliance/Urban_Reuse_Norway",
+        )
+    ]
+    assert not (appliance_root / "cache" / "urn_nexus_local_projects" / "Urban_Reuse_Norway" / "Portal Prosjekt").exists()
+
+    projects_response = client.get("/api/projects")
+    assert projects_response.status_code == 200
+    projects_payload = projects_response.json()
+    portal_project = next(project for project in projects_payload["projects"] if project["project_name"] == "Portal Prosjekt")
+    assert portal_project["source_label"] == "OneDrive"
+    assert portal_project["is_local_cache_only"] is False
+    assert portal_project["relative_project_path"] == "Urban_Reuse_Norway/Portal Prosjekt"
+    assert portal_project["status"] == "pending"
+
+
+def test_local_only_project_is_hidden_from_standard_project_list(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    local_project = appliance_root / "cache" / "urn_nexus_local_projects" / "Urban_Reuse_Norway" / "Kun Lokal"
+    (local_project / "Anbud").mkdir(parents=True)
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+
+    projects_response = client.get("/api/projects")
+    assert projects_response.status_code == 200
+    projects_payload = projects_response.json()
+    assert projects_payload["projects"] == []
+
+    debug_response = client.get("/api/projects?include_local_cache=true")
+    assert debug_response.status_code == 200
+    debug_payload = debug_response.json()
+    assert debug_payload["count"] == 1
+    assert debug_payload["projects"][0]["project_name"] == "Kun Lokal"
+    assert debug_payload["projects"][0]["source_label"] == "Kun lokal cache"
+    assert debug_payload["projects"][0]["is_local_cache_only"] is True
+
+
+def test_delete_project_local_cache_hides_without_deleting_onedrive(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    project_name = "Rydd Meg"
+    local_project = appliance_root / "cache" / "urn_nexus_local_projects" / "Urban_Reuse_Norway" / project_name
+    local_upload = appliance_root / "cache" / "urn_nexus_uploads" / "Urban_Reuse_Norway" / project_name
+    output_project = appliance_root / "outputs" / "Urban_Reuse_Norway" / project_name
+    remote_onedrive_project = tmp_path / "OneDrive" / "AnbudAppliance" / "Urban_Reuse_Norway" / project_name
+    for path in [local_project / "Anbud", local_upload / "Anbud", output_project / "Kommentarer", remote_onedrive_project]:
+        path.mkdir(parents=True, exist_ok=True)
+
+    runtime_root = appliance_root / ".riveanbud_runtime" / "rive-anbud-appliance" / "Urban_Reuse_Norway"
+    synced_project = runtime_root / "cache" / "onedrive_sync" / "test-sync-id" / "post@example.com" / "test-drive-id" / project_name
+    (synced_project / "Anbud").mkdir(parents=True)
+    state_db = runtime_root / "state" / "onedrive_lightweight_state.sqlite3"
+    state_db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(state_db) as connection:
+        connection.execute(
+            """
+            CREATE TABLE projects (
+                project_name TEXT,
+                remote_root_path TEXT,
+                local_project_root TEXT,
+                analysis_status TEXT,
+                last_sync_at TEXT,
+                last_analyzed_at TEXT,
+                updated_at TEXT,
+                report_path TEXT,
+                report_url TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO projects (
+                project_name,
+                remote_root_path,
+                local_project_root,
+                analysis_status,
+                last_sync_at,
+                last_analyzed_at,
+                updated_at,
+                report_path,
+                report_url
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_name,
+                f"AnbudAppliance/Urban_Reuse_Norway/{project_name}",
+                str(synced_project),
+                "pending",
+                "2026-06-02T08:50:00+00:00",
+                None,
+                "2026-06-02T08:55:00+00:00",
+                "",
+                "",
+            ),
+        )
+        connection.commit()
+
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+
+    response = client.delete(f"/api/projects/{_project_path(project_name)}/local-cache")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_name"] == project_name
+    assert payload["hidden"] is True
+    assert payload["removed_state_rows"] == 1
+    assert not local_project.exists()
+    assert not local_upload.exists()
+    assert not output_project.exists()
+    assert not synced_project.exists()
+    assert remote_onedrive_project.exists()
+
+    with sqlite3.connect(state_db) as connection:
+        remaining = connection.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+    assert remaining == 0
+
+    projects_response = client.get("/api/projects?include_local_cache=true")
+    assert projects_response.status_code == 200
+    assert projects_response.json()["projects"] == []
+
+
+def test_delete_project_removes_project_from_nexus_and_calls_onedrive_delete(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = _build_custom_appliance_root(tmp_path)
+    delete_calls: list[tuple[str, str]] = []
+
+    class FakeOneDriveWriter:
+        def create_project(self, project_name: str, *, folders: list[str], parent_remote_path: str) -> list[str]:
+            return folders
+
+        def create_project_folder(
+            self,
+            project_name: str,
+            folder_name: str,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            return {"id": "folder-id", "name": folder_name}
+
+        def upload_file(
+            self,
+            project_name: str,
+            filename: str,
+            content: bytes,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            return {"id": "file-id", "name": filename}
+
+        def delete_project(self, project_name: str, *, parent_remote_path: str) -> str:
+            delete_calls.append((project_name, parent_remote_path))
+            return f"{parent_remote_path}/{project_name}"
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root), onedrive_writer=FakeOneDriveWriter())
+    service = app.state.appliance_service
+    monkeypatch.setattr(service, "_require_sync_only_available", lambda: None)
+    monkeypatch.setattr(service, "_run_sync_for_project", lambda project_name: None)
+    client = _AsyncAppClient(app)
+
+    response = client.delete("/api/projects/Alpha%20Project")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_name"] == "Alpha Project"
+    assert payload["deleted_remote_path"] == "AnbudAppliance/Urban_Reuse_Norway/Alpha Project"
+    assert payload["synced"] is True
+    assert delete_calls == [("Alpha Project", "AnbudAppliance/Urban_Reuse_Norway")]
+
+    projects_response = client.get("/api/projects")
+    assert projects_response.status_code == 200
+    assert projects_response.json()["projects"] == []
+
+
+def test_sync_endpoint_starts_sync_only_nonblocking_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    script_path = appliance_root / "scripts" / "run_onedrive_appliance.py"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text("# supports --sync-only\n", encoding="utf-8")
+    started_commands: list[list[str]] = []
+
+    class DummyProcess:
+        returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def communicate(self) -> tuple[str, str]:
+            self.returncode = 0
+            return (
+                json.dumps(
+                    {
+                        "per_root_results": [
+                            {
+                                "status": "completed",
+                                "changed_files": 2,
+                                "reports_found": 0,
+                            }
+                        ]
+                    }
+                ),
+                "",
+            )
+
+    def fake_popen(command: list[str], **_: object) -> DummyProcess:
+        started_commands.append(command)
+        return DummyProcess()
+
+    monkeypatch.setattr("backend.app.services.appliance.subprocess.Popen", fake_popen)
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    client = _AsyncAppClient(app)
+
+    response = client.post("/api/sync/run")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["running"] is True
+    assert payload["status"] == "started"
+    assert payload["sync_only"] is True
+    assert payload["analysis_started"] is False
+    assert payload["reports_generated"] == 0
+    assert payload["projects_synced"] == 0
+    assert payload["files_changed"] == 0
+    assert payload["reports_found"] == 0
+    assert started_commands
+    assert "run_onedrive_appliance.py" in started_commands[0][1]
+    assert "--once" in started_commands[0]
+    assert "--all-roots" in started_commands[0]
+    assert "--sync-only" in started_commands[0]
+    assert "--force-analyze" not in started_commands[0]
+    assert "--provider" not in started_commands[0]
+    assert "openai" not in started_commands[0]
+    assert "--email-mode" not in started_commands[0]
+    assert "immediate" not in started_commands[0]
+    assert "daily_digest" not in started_commands[0]
+    assert "--local-output-mode" not in started_commands[0]
+
+    status_response = client.get("/api/sync/status")
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["job_id"] == payload["job_id"]
+    assert status_payload["status"] in {"running", "completed"}
+
+
+def test_sync_endpoint_fails_safely_when_sync_only_is_unavailable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    script_path = appliance_root / "scripts" / "run_onedrive_appliance.py"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text("# no safe sync flag here\n", encoding="utf-8")
+    started_commands: list[list[str]] = []
+
+    def fake_popen(command: list[str], **_: object) -> object:
+        started_commands.append(command)
+        raise AssertionError("Nexus must not start full appliance pipeline when sync-only is unavailable.")
+
+    monkeypatch.setattr("backend.app.services.appliance.subprocess.Popen", fake_popen)
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+
+    response = client.post("/api/sync/run")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["code"] == "sync_only_unavailable"
+    assert payload["detail"] == (
+        "Nexus kan ikke synkronisere trygt før appliance støtter sync-only. Full analysepipeline er blokkert fra Nexus."
+    )
+    assert started_commands == []

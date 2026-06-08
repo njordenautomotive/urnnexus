@@ -1,0 +1,16 @@
+[Unit]
+Description=URN Nexus OneDrive appliance sync
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/anbudklient/appliance
+EnvironmentFile=-/home/anbudklient/appliance/.env
+ExecStart=/home/anbudklient/appliance/.venv/bin/python /home/anbudklient/appliance/scripts/run_onedrive_appliance.py --once --provider fake --local-output-mode history --no-send-digest
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+[Install]
+WantedBy=multi-user.target

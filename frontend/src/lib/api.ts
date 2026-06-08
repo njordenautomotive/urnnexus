@@ -1,13 +1,23 @@
 import type {
   HealthResponse,
+  FileUploadResponse,
+  FolderCreateRequest,
+  FolderCreateResponse,
+  ProjectCreateRequest,
+  ProjectCreateResponse,
+  ProjectDeleteResponse,
+  ProjectLocalCacheDeleteResponse,
   ProjectDetailResponse,
   ProjectFilesResponse,
   ProjectListResponse,
   ProjectReportsResponse,
+  SyncRunResponse,
+  SyncStatusResponse,
   ApiError,
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function joinPath(base: string, path: string): string {
   const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
@@ -41,17 +51,113 @@ export class ApiRequestError extends Error {
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(joinPath(API_BASE, path), {
-    headers: {
-      Accept: "application/json",
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(joinPath(API_BASE, path), {
+      headers: {
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    throw new ApiRequestError(response.status, await readJsonError(response));
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await readJsonError(response));
+    }
+
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
   }
+}
 
-  return (await response.json()) as T;
+async function sendJson<T>(path: string, payload?: unknown): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(joinPath(API_BASE, path), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await readJsonError(response));
+    }
+
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(joinPath(API_BASE, path), {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await readJsonError(response));
+    }
+
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function sendForm<T>(path: string, formData: FormData): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(joinPath(API_BASE, path), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await readJsonError(response));
+    }
+
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
 }
 
 export function projectUrl(projectName: string, suffix = ""): string {
@@ -153,4 +259,35 @@ export async function getProjectReports(projectName: string): Promise<ProjectRep
 
 export async function getProjectFiles(projectName: string): Promise<ProjectFilesResponse> {
   return fetchJson<ProjectFilesResponse>(projectUrl(projectName, "files"));
+}
+
+export async function createProject(payload: ProjectCreateRequest): Promise<ProjectCreateResponse> {
+  return sendJson<ProjectCreateResponse>("/projects", payload);
+}
+
+export async function deleteProject(projectName: string): Promise<ProjectDeleteResponse> {
+  return deleteJson<ProjectDeleteResponse>(projectUrl(projectName));
+}
+
+export async function deleteProjectLocalCache(projectName: string): Promise<ProjectLocalCacheDeleteResponse> {
+  return deleteJson<ProjectLocalCacheDeleteResponse>(projectUrl(projectName, "local-cache"));
+}
+
+export async function uploadProjectFile(projectName: string, file: File, targetFolder: string): Promise<FileUploadResponse> {
+  const formData = new FormData();
+  formData.set("file", file);
+  formData.set("target_folder", targetFolder);
+  return sendForm<FileUploadResponse>(projectUrl(projectName, "files/upload"), formData);
+}
+
+export async function createProjectFolder(projectName: string, payload: FolderCreateRequest): Promise<FolderCreateResponse> {
+  return sendJson<FolderCreateResponse>(projectUrl(projectName, "files/folders"), payload);
+}
+
+export async function runSync(): Promise<SyncRunResponse> {
+  return sendJson<SyncRunResponse>("/sync/run");
+}
+
+export async function getSyncStatus(): Promise<SyncStatusResponse> {
+  return fetchJson<SyncStatusResponse>("/sync/status");
 }

@@ -1,7 +1,6 @@
-import { EmptyState } from "../components/EmptyState";
+import { ProjectIssuesPanel } from "../components/ProjectIssuesPanel";
 import { StatusPill } from "../components/StatusPill";
 import { formatDateTime } from "../lib/api";
-import { displayProjectPath } from "../lib/projects";
 import { useProjectPageContext } from "./ProjectPage";
 
 function infoValue(value: string | null | undefined): string {
@@ -9,8 +8,7 @@ function infoValue(value: string | null | undefined): string {
 }
 
 export function ProjectOverviewPage() {
-  const { project } = useProjectPageContext();
-  const hasCommentOnlyFiles = project.file_count === 0 && project.comment_document_count > 0;
+  const { project, projectDetail } = useProjectPageContext();
 
   return (
     <div className="section-stack">
@@ -25,74 +23,61 @@ export function ProjectOverviewPage() {
         <div className="detail-grid">
           <div className="detail-card">
             <span>Prosjekt</span>
-            <strong>{project.display_name}</strong>
+            <strong>{project.displayName}</strong>
           </div>
           <div className="detail-card">
             <span>Kilde</span>
-            <strong>{project.source_label}</strong>
+            <strong>{project.sourceLabel}</strong>
           </div>
           <div className="detail-card">
             <span>Sti</span>
-            <strong>{displayProjectPath(project.relative_project_path)}</strong>
+            <strong>{project.breadcrumbPath}</strong>
           </div>
           <div className="detail-card">
             <span>Status</span>
-            <StatusPill status={project.status} />
+            <StatusPill status={project.status.level} />
           </div>
           <div className="detail-card">
             <span>Filer</span>
-            <strong>{project.file_count.toLocaleString("nb-NO")}</strong>
+            <strong>{project.fileCountLabel}</strong>
           </div>
           <div className="detail-card">
             <span>Rapporter</span>
-            <strong>{project.report_count.toLocaleString("nb-NO")}</strong>
+            <strong>{project.reportCountLabel}</strong>
           </div>
           <div className="detail-card">
             <span>Sist synket</span>
-            <strong>{project.last_synced_at ? formatDateTime(project.last_synced_at) : "—"}</strong>
+            <strong>{project.lastSyncedAt ? formatDateTime(project.lastSyncedAt) : "—"}</strong>
           </div>
           <div className="detail-card">
-            <span>Siste kommentardokument</span>
-            <strong>{infoValue(project.latest_comment_document)}</strong>
+            <span>Siste rapport</span>
+            <strong>{infoValue(project.latestReport?.name)}</strong>
           </div>
           <div className="detail-card detail-card--wide">
-            <span>Sist kommentardokument endret</span>
-            <strong>{project.latest_comment_modified_at ? formatDateTime(project.latest_comment_modified_at) : "—"}</strong>
+            <span>Siste rapport opprettet</span>
+            <strong>{project.latestReport?.createdAt ? formatDateTime(project.latestReport.createdAt) : "—"}</strong>
+          </div>
+          <div className="detail-card">
+            <span>Sist analysert</span>
+            <strong>{project.lastAnalyzedAt ? formatDateTime(project.lastAnalyzedAt) : "—"}</strong>
+          </div>
+          <div className="detail-card">
+            <span>Analysegrunnlag</span>
+            <strong>
+              {projectDetail.analysis?.documents_seen !== null && projectDetail.analysis?.documents_seen !== undefined
+                ? `${projectDetail.analysis.documents_seen.toLocaleString("nb-NO")} dokumenter`
+                : "—"}
+            </strong>
           </div>
         </div>
 
-        {hasCommentOnlyFiles ? (
+        {project.hasCommentOnlyFiles ? (
           <div className="inline-note">
             Dette prosjektet har bare kommentardokumenter i Kommentarer. Ingen kildefiler ble funnet i den lokale appliance-cachen.
           </div>
         ) : null}
 
-        {project.warnings.length > 0 || project.errors.length > 0 ? (
-          <div className="notice-stack">
-            {project.warnings.length > 0 ? (
-              <div className="notice notice--warning">
-                <div className="notice__title">Varsler</div>
-                <ul className="notice__list">
-                  {project.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {project.errors.length > 0 ? (
-              <div className="notice notice--error">
-                <div className="notice__title">Feil</div>
-                <ul className="notice__list">
-                  {project.errors.map((error) => (
-                    <li key={error}>{error}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <EmptyState title="Ingen varsler" description="Dette prosjektet har ingen synlige varsler eller feil akkurat nå." />
-        )}
+        <ProjectIssuesPanel project={project} />
       </section>
     </div>
   );

@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getHealth, getProjects } from "../lib/api";
-import { filterVisibleProjects, showSampleProjectsInUi } from "../lib/projects";
-import type { HealthResponse, ProjectSummary } from "../types";
+import { createProjectViewModels, filterVisibleProjects, showSampleProjectsInUi, type ProjectViewModel } from "../lib/projects";
+import type { HealthResponse } from "../types";
 
 interface AppDataContextValue {
-  projects: ProjectSummary[];
+  projects: ProjectViewModel[];
   projectsLoading: boolean;
   projectsError: string | null;
   projectWarnings: string[];
@@ -17,7 +17,7 @@ interface AppDataContextValue {
 export const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projects, setProjects] = useState<ProjectViewModel[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [projectWarnings, setProjectWarnings] = useState<string[]>([]);
@@ -38,10 +38,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           return;
         }
         const visibleProjects = filterVisibleProjects(response.projects, showSampleProjectsInUi);
-        setProjects(visibleProjects);
+        const viewModels = createProjectViewModels(visibleProjects);
+        setProjects(viewModels);
         setProjectWarnings(
           Array.from(
-            new Set(visibleProjects.flatMap((project) => [...project.warnings, ...project.errors]).filter((message) => message.trim().length > 0)),
+            new Set(viewModels.flatMap((project) => project.issues.map((issue) => issue.message)).filter((message) => message.trim().length > 0)),
           ),
         );
       })

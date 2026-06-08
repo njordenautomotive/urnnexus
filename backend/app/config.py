@@ -21,6 +21,7 @@ class ApplianceSettings(BaseModel):
     appliance_root: Path = Field(default_factory=_default_appliance_root)
     sample_projects_dirname: str = "sample_projects"
     runtime_dirname: str = ".riveanbud_runtime"
+    onedrive_project_root_path: str = Field(default_factory=lambda: os.getenv("URN_NEXUS_ONEDRIVE_PROJECT_ROOT", "AnbudAppliance/Urban_Reuse_Norway"))
 
     def resolved_appliance_root(self) -> Path:
         return self.appliance_root.expanduser().resolve()
@@ -35,3 +36,5 @@ class ApplianceSettings(BaseModel):
             roots.append(Path(runtime_override).expanduser())
         return list(dict.fromkeys(path.resolve(strict=False) for path in roots))
 
+    def onedrive_project_root(self) -> str:
+        return self.onedrive_project_root_path.strip().strip("/")

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAppData } from "../context/AppDataContext";
-import { displayProjectPath } from "../lib/projects";
 import { StatusPill } from "./StatusPill";
 
 export function AppLayout() {
@@ -26,7 +25,7 @@ function Sidebar() {
         <img className="sidebar__logo" src="/brand/urn_nexus_128.png" alt="" aria-hidden="true" />
         <div>
           <div className="sidebar__title">URN Nexus</div>
-          <div className="sidebar__subtitle">OneDrive-portal</div>
+          <div className="sidebar__subtitle">Portal for OneDrive-prosjekter</div>
         </div>
       </div>
 
@@ -42,7 +41,7 @@ function Sidebar() {
         </NavLink>
       </nav>
 
-      <div className="sidebar__note">Data leses fra lokal appliance-cache. Oppdater visning synker ikke OneDrive.</div>
+      <div className="sidebar__note">Oppdater visning laster bare UI på nytt. Synk OneDrive oppdaterer cache fra OneDrive.</div>
       {healthError ? <div className="sidebar__error">{healthError}</div> : null}
     </aside>
   );
@@ -68,7 +67,7 @@ export function AppHeader({ title, description }: { title: string; description?:
 
 export function ProjectHeader({
   title,
-  relativeProjectPath,
+  breadcrumbPath,
   sourceLabel,
   status,
   meta,
@@ -76,7 +75,7 @@ export function ProjectHeader({
   actions,
 }: {
   title: string;
-  relativeProjectPath: string;
+  breadcrumbPath: string;
   sourceLabel: string;
   status: string;
   meta?: string[];
@@ -89,7 +88,7 @@ export function ProjectHeader({
         <div className="project-header__eyebrow">
           <span>{sourceLabel}</span>
           <span>·</span>
-          <span>{displayProjectPath(relativeProjectPath)}</span>
+          <span>{breadcrumbPath}</span>
         </div>
         <h1 className="project-header__title">{title}</h1>
         <div className="project-header__meta">

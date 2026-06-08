@@ -1,13 +1,13 @@
 import { ErrorState } from "../components/ErrorState";
 import { ReportTable } from "../components/ReportTable";
+import { StatusPill } from "../components/StatusPill";
 import { formatBytes, formatDateTime, getProjectReports } from "../lib/api";
-import { displayProjectPath } from "../lib/projects";
 import { useResource } from "../lib/useResource";
 import { useProjectPageContext } from "./ProjectPage";
 
 export function ProjectReportsPage() {
   const { project } = useProjectPageContext();
-  const { data: reports, loading, error, reload } = useResource(() => getProjectReports(project.project_name), [project.project_name]);
+  const { data: reports, loading, error, reload } = useResource(() => getProjectReports(project.projectName), [project.projectName]);
 
   if (loading) {
     return (
@@ -32,7 +32,17 @@ export function ProjectReportsPage() {
   }
 
   if (!reports) {
-    return null;
+    return (
+      <ErrorState
+        title="Kunne ikke laste rapportene"
+        description="API-et returnerte ikke rapportdata."
+        action={
+          <button type="button" className="button button--secondary" onClick={reload}>
+            Prøv igjen
+          </button>
+        }
+      />
+    );
   }
 
   const totalSize = reports.reports.reduce((sum, report) => sum + report.size_bytes, 0);
@@ -43,29 +53,29 @@ export function ProjectReportsPage() {
         <div className="section-head">
           <div>
             <div className="section-kicker">Rapporter</div>
-            <h2 className="section-title">Kommentarer</h2>
+            <h2 className="section-title">Rapporthistorikk</h2>
           </div>
           <div className="section-head__note">
-            {reports.count.toLocaleString("nb-NO")} dokumenter · {formatBytes(totalSize)}
+            {project.reportCountLabel} · {formatBytes(totalSize)}
           </div>
         </div>
 
         <div className="detail-grid detail-grid--compact">
           <div className="detail-card">
             <span>Prosjekt</span>
-            <strong>{reports.display_name}</strong>
+            <strong>{project.displayName}</strong>
           </div>
           <div className="detail-card">
-            <span>Relativ sti</span>
-            <strong>{displayProjectPath(reports.relative_project_path)}</strong>
+            <span>Sti</span>
+            <strong>{project.breadcrumbPath}</strong>
           </div>
           <div className="detail-card">
-            <span>Siste kommentardokument</span>
-            <strong>{reports.latest_comment_document ?? "Ingen"}</strong>
+            <span>Status</span>
+            <StatusPill status={project.status.level} />
           </div>
           <div className="detail-card">
-            <span>Sist endret</span>
-            <strong>{reports.latest_comment_modified_at ? formatDateTime(reports.latest_comment_modified_at) : "—"}</strong>
+            <span>Siste rapport opprettet</span>
+            <strong>{project.latestReport?.createdAt ? formatDateTime(project.latestReport.createdAt) : "—"}</strong>
           </div>
         </div>
 

@@ -12,6 +12,26 @@ export interface HealthResponse {
   version: string | null;
   appliance_root: string;
   discovered_projects: number;
+  last_synced_at: string | null;
+  last_analyzed_at: string | null;
+  latest_report_generated_at: string | null;
+  project_count: number;
+  file_count: number;
+  report_count: number;
+  one_drive_status: string;
+  one_drive_detail: string | null;
+  graph_write_status: string;
+  graph_write_detail: string | null;
+  openai_status: string;
+  openai_detail: string | null;
+  smtp_status: string;
+  smtp_detail: string | null;
+  disk_total_bytes: number | null;
+  disk_used_bytes: number | null;
+  disk_free_bytes: number | null;
+  cache_size_bytes: number | null;
+  errors_last_24h: number;
+  warnings_last_24h: number;
 }
 
 export interface ProjectSummary {
@@ -23,9 +43,11 @@ export interface ProjectSummary {
   last_synced_at: string | null;
   latest_comment_document: string | null;
   latest_comment_document_open_url: string | null;
+  latest_comment_created_at: string | null;
   latest_comment_modified_at: string | null;
   comment_document_count: number;
   is_sample_project: boolean;
+  is_local_cache_only?: boolean;
   project_path: string;
   last_analyzed_at: string | null;
   status: ApiStatus;
@@ -60,10 +82,14 @@ export interface ProjectReport {
   report_name: string;
   report_path: string;
   report_type: string;
+  version: string | null;
+  created_at: string | null;
+  generated_at: string | null;
   modified_at: string;
   size_bytes: number;
   is_latest: boolean;
   open_url: string;
+  download_url: string;
 }
 
 export interface CountFacet {
@@ -75,12 +101,16 @@ export interface CountFacet {
 export interface FileNode {
   name: string;
   path: string;
+  relative_path?: string;
+  display_name?: string;
   kind: "folder" | "file";
   file_count: number;
   folder_category: string | null;
   extension: string | null;
   size_bytes: number | null;
   modified_at: string | null;
+  open_url?: string | null;
+  download_url?: string | null;
   children: FileNode[];
 }
 
@@ -97,9 +127,11 @@ export interface ProjectFilesResponse {
   last_synced_at: string | null;
   latest_comment_document: string | null;
   latest_comment_document_open_url: string | null;
+  latest_comment_created_at: string | null;
   latest_comment_modified_at: string | null;
   comment_document_count: number;
   is_sample_project: boolean;
+  is_local_cache_only?: boolean;
   project_name: string;
   project_path: string;
   total_files: number;
@@ -117,9 +149,11 @@ export interface ProjectReportsResponse {
   last_synced_at: string | null;
   latest_comment_document: string | null;
   latest_comment_document_open_url: string | null;
+  latest_comment_created_at: string | null;
   latest_comment_modified_at: string | null;
   comment_document_count: number;
   is_sample_project: boolean;
+  is_local_cache_only?: boolean;
   project_name: string;
   project_path: string;
   count: number;
@@ -143,4 +177,82 @@ export interface ProjectDebugPathsResponse {
   first_20_files_on_disk: string[];
   ignored_file_count: number;
   ignored_reasons: string[];
+}
+
+export interface ProjectCreateRequest {
+  project_name: string;
+  template?: string | null;
+  folders?: string[];
+}
+
+export interface ProjectCreateResponse {
+  project_name: string;
+  relative_project_path: string;
+  mode: "onedrive";
+  folders_created: string[];
+  warning: string | null;
+}
+
+export interface ProjectLocalCacheDeleteResponse {
+  project_name: string;
+  hidden: boolean;
+  removed_paths: string[];
+  removed_state_rows: number;
+  message: string;
+}
+
+export interface ProjectDeleteResponse {
+  project_name: string;
+  deleted_remote_path: string;
+  synced: boolean;
+  message: string;
+}
+
+export interface FileUploadResponse {
+  project_name: string;
+  filename: string;
+  target_folder: string;
+  relative_path: string;
+  size_bytes: number;
+  mode: "onedrive" | "local_cache_only";
+  warning: string | null;
+}
+
+export interface FolderCreateRequest {
+  folder_name: string;
+  target_folder?: string | null;
+}
+
+export interface FolderCreateResponse {
+  project_name: string;
+  folder_name: string;
+  target_folder: string;
+  relative_path: string;
+  mode: "onedrive" | "local_cache_only";
+  warning: string | null;
+}
+
+export interface SyncRunResponse {
+  job_id: string;
+  running: boolean;
+  started_at: string;
+  status: string;
+  sync_only: boolean;
+  analysis_started: boolean;
+  reports_generated: number;
+  projects_synced: number;
+  files_changed: number;
+  reports_found: number;
+}
+
+export interface SyncStatusResponse {
+  running: boolean;
+  job_id: string | null;
+  last_started_at: string | null;
+  last_completed_at: string | null;
+  last_error: string | null;
+  projects_synced: number;
+  files_changed: number;
+  reports_found: number;
+  status: string;
 }

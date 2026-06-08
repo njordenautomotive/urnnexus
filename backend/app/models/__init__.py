@@ -3,6 +3,17 @@
 from .common import ApiError, CountFacet
 from .files import ProjectFileFilters, ProjectFileNode, ProjectFilesResponse
 from .health import HealthResponse
+from .operations import (
+    FileUploadResponse,
+    FolderCreateRequest,
+    FolderCreateResponse,
+    ProjectCreateRequest,
+    ProjectCreateResponse,
+    ProjectDeleteResponse,
+    ProjectLocalCacheDeleteResponse,
+    SyncRunResponse,
+    SyncStatusResponse,
+)
 from .project import (
     ProjectAnalysisInfo,
     ProjectDetailResponse,
@@ -16,7 +27,14 @@ __all__ = [
     "ApiError",
     "CountFacet",
     "HealthResponse",
+    "FileUploadResponse",
+    "FolderCreateRequest",
+    "FolderCreateResponse",
     "ProjectAnalysisInfo",
+    "ProjectCreateRequest",
+    "ProjectCreateResponse",
+    "ProjectDeleteResponse",
+    "ProjectLocalCacheDeleteResponse",
     "ProjectDetailResponse",
     "ProjectFileFilters",
     "ProjectFileNode",
@@ -25,5 +43,6 @@ __all__ = [
     "ProjectReport",
     "ProjectReportsResponse",
     "ProjectSummary",
+    "SyncRunResponse",
+    "SyncStatusResponse",
 ]
-

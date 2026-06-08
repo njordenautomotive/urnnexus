@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countFilesInTree, filterFileTree } from "./fileTree";
+import { countFilesInTree, filterFileTree, flattenFileTree } from "./fileTree";
 import type { FileNode } from "../types";
 
 const sampleTree: FileNode = {
@@ -25,12 +25,16 @@ const sampleTree: FileNode = {
         {
           name: "tilbud.pdf",
           path: "/Prosjekt/Anbud/tilbud.pdf",
+          relative_path: "Anbud/tilbud.pdf",
+          display_name: "tilbud.pdf",
           kind: "file",
           file_count: 0,
           folder_category: null,
           extension: "pdf",
           size_bytes: 1024,
           modified_at: null,
+          open_url: "/api/projects/Prosjekt/files/open?path=Anbud%2Ftilbud.pdf",
+          download_url: "/api/projects/Prosjekt/files/download?path=Anbud%2Ftilbud.pdf",
           children: [],
         },
         {
@@ -91,5 +95,15 @@ describe("fileTree helpers", () => {
     expect(filtered).not.toBeNull();
     expect(filtered?.children).toHaveLength(1);
     expect(filtered?.children[0].name).toBe("Tegninger");
+  });
+
+  it("flattens files with project-relative paths and file actions", () => {
+    const files = flattenFileTree(sampleTree);
+    expect(files[0]).toMatchObject({
+      displayName: "tilbud.pdf",
+      path: "Anbud/tilbud.pdf",
+      openUrl: "/api/projects/Prosjekt/files/open?path=Anbud%2Ftilbud.pdf",
+      downloadUrl: "/api/projects/Prosjekt/files/download?path=Anbud%2Ftilbud.pdf",
+    });
   });
 });
