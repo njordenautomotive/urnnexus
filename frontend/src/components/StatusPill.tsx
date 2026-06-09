@@ -11,7 +11,7 @@ export function StatusPill({ status, label, tone }: StatusPillProps) {
   return (
     <span className={`status-pill status-pill--${resolvedTone}`}>
       <span className="status-pill__dot" aria-hidden="true" />
-      {label ?? humanizeStatus(status)}
+      <span className="status-pill__label">{label ?? humanizeStatus(status)}</span>
     </span>
   );
 }

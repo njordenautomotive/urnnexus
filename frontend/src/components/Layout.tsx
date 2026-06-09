@@ -23,9 +23,8 @@ function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar__brand">
         <img className="sidebar__logo" src="/brand/urn_nexus_128.png" alt="" aria-hidden="true" />
-        <div>
+        <div className="sidebar__brand-text">
           <div className="sidebar__title">URN Nexus</div>
-          <div className="sidebar__subtitle">Portal for OneDrive-prosjekter</div>
         </div>
       </div>
 
@@ -36,23 +35,33 @@ function Sidebar() {
         <NavLink to="/projects" className={({ isActive }) => `sidebar__nav-link ${isActive ? "sidebar__nav-link--active" : ""}`}>
           Prosjekter
         </NavLink>
+        <NavLink to="/analysis" className={({ isActive }) => `sidebar__nav-link ${isActive ? "sidebar__nav-link--active" : ""}`}>
+          Analyse
+        </NavLink>
         <NavLink to="/health" className={({ isActive }) => `sidebar__nav-link ${isActive ? "sidebar__nav-link--active" : ""}`}>
-          Health
+          Helse
         </NavLink>
       </nav>
 
-      <div className="sidebar__note">Oppdater visning laster bare UI på nytt. Synk OneDrive oppdaterer cache fra OneDrive.</div>
       {healthError ? <div className="sidebar__error">{healthError}</div> : null}
     </aside>
   );
 }
 
-export function AppHeader({ title, description }: { title: string; description?: string }) {
+export function AppHeader({
+  title,
+  description,
+  eyebrow = null,
+}: {
+  title: string;
+  description?: string;
+  eyebrow?: string | null;
+}) {
   const { refresh } = useAppData();
   return (
     <header className="page-header">
       <div>
-        <div className="page-header__eyebrow">URN Nexus</div>
+        {eyebrow ? <div className="page-header__eyebrow">{eyebrow}</div> : null}
         <h1 className="page-header__title">{title}</h1>
         {description ? <p className="page-header__description">{description}</p> : null}
       </div>
@@ -85,11 +94,6 @@ export function ProjectHeader({
   return (
     <section className="project-header">
       <div>
-        <div className="project-header__eyebrow">
-          <span>{sourceLabel}</span>
-          <span>·</span>
-          <span>{breadcrumbPath}</span>
-        </div>
         <h1 className="project-header__title">{title}</h1>
         <div className="project-header__meta">
           <StatusPill status={status} label={statusLabel} />

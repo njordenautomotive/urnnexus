@@ -21,7 +21,7 @@ function formatLatestReport(project: ProjectViewModel): string {
   if (project.latestReport === null) {
     return "Ingen rapport";
   }
-  const timestamp = project.latestReport.createdAt ?? project.latestReport.modifiedAt;
+  const timestamp = project.latestReport.createdAt;
   if (timestamp === null) {
     return project.latestReport.name;
   }

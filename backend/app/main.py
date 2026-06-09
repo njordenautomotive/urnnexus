@@ -13,6 +13,7 @@ from backend.app.models.common import ApiError
 from backend.app.services.appliance import (
     ApplianceService,
     ApplianceUnavailableError,
+    AnalysisUnavailableError,
     OneDriveGraphWriteUnavailableError,
     OneDriveProjectWriter,
     ProjectAmbiguousError,
@@ -38,7 +39,7 @@ def _configure_logging() -> None:
 
 def create_app(settings: ApplianceSettings | None = None, *, onedrive_writer: OneDriveProjectWriter | None = None) -> FastAPI:
     _configure_logging()
-    app = FastAPI(title="URN Nexus Web", version="0.1.0")
+    app = FastAPI(title="URN Nexus Web", version="0.1.5")
     resolved_settings = settings or ApplianceSettings()
     app.state.appliance_service = ApplianceService(resolved_settings, onedrive_writer=onedrive_writer)
 
@@ -81,6 +82,10 @@ def create_app(settings: ApplianceSettings | None = None, *, onedrive_writer: On
     @app.exception_handler(SyncOnlyUnavailableError)
     async def sync_only_unavailable_handler(_: Request, exc: SyncOnlyUnavailableError) -> JSONResponse:
         return JSONResponse(status_code=503, content=ApiError(code="sync_only_unavailable", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(AnalysisUnavailableError)
+    async def analysis_unavailable_handler(_: Request, exc: AnalysisUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=503, content=ApiError(code="analysis_unavailable", detail=str(exc)).model_dump(mode="json"))
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:

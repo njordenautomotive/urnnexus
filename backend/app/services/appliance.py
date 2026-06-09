@@ -23,6 +23,8 @@ from backend.app.models.common import CountFacet
 from backend.app.models.files import ProjectFileFilters, ProjectFileNode, ProjectFilesResponse
 from backend.app.models.health import HealthResponse
 from backend.app.models.operations import (
+    AnalysisRunResponse,
+    AnalysisStatusResponse,
     FileUploadResponse,
     FolderCreateResponse,
     ProjectCreateResponse,
@@ -77,6 +79,7 @@ SOURCE_CATEGORY_BY_FOLDER: dict[str, str] = {
 }
 _VERSION_RE = re.compile(r"^\s*version\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 _REPORT_VERSION_SUFFIX_RE = re.compile(r"(?:^|[\s_-])(?:v|versjon|version|rev|r)?\s*(\d+(?:\.\d+)*)\s*$", re.IGNORECASE)
+_COMMENT_DOCUMENT_REPORT_RE = re.compile(r"(?i)\bkommentardokument\b(?:\s*[-_]\s*\d+(?:\.\d+)*)?\s*$")
 
 
 class ApplianceServiceError(RuntimeError):
@@ -119,6 +122,10 @@ class SyncOnlyUnavailableError(ApplianceServiceError):
     """Raised when appliance cannot provide a sync-only mode."""
 
 
+class AnalysisUnavailableError(ApplianceServiceError):
+    """Raised when appliance cannot provide a full analysis mode."""
+
+
 class OneDriveProjectWriter(Protocol):
     def create_project(self, project_name: str, *, folders: list[str], parent_remote_path: str) -> list[str]:
         """Create a project folder and subfolders in OneDrive."""
@@ -144,7 +151,7 @@ class OneDriveProjectWriter(Protocol):
     ) -> dict[str, Any]:
         """Upload a file directly to OneDrive."""
 
-    def delete_project(self, project_name: str, *, parent_remote_path: str) -> str:
+    def delete_project(self, project_name: str, *, parent_remote_path: str) -> tuple[str, bool]:
         """Delete a project folder from OneDrive."""
 
 
@@ -304,26 +311,46 @@ class ApplianceOneDriveProjectWriter:
                 else:
                     os.environ[key] = value
 
-    def delete_project(self, project_name: str, *, parent_remote_path: str) -> str:
+    def delete_project(self, project_name: str, *, parent_remote_path: str) -> tuple[str, bool]:
         self._ensure_appliance_import_path()
         previous_env: dict[str, str | None] = {key: os.environ.get(key) for key in self.env}
         os.environ.update(self.env)
         try:
-            from app.integrations.onedrive.client import OneDriveClient, OneDriveClientError, _load_requests_module
+            from app.integrations.onedrive.client import OneDriveClient, OneDriveClientError, _format_graph_error_response, _load_requests_module
 
             client = OneDriveClient.from_env(env=self.env)
+            parent_item = client.get_item_by_path(parent_remote_path)
+            parent_id = str(parent_item.get("id") or "").strip()
+            if not parent_id:
+                raise ProjectWriteError("Microsoft Graph returnerte ikke id for OneDrive-prosjektroten.")
+
             project_path = self._project_remote_path(parent_remote_path, project_name)
-            project_item = client.get_item_by_path(project_path)
+            try:
+                project_item = client.get_item_by_path(project_path)
+            except OneDriveClientError as exc:
+                if "Configured OneDrive folder not found" in str(exc):
+                    return project_path, False
+                raise
+
+            requests = _load_requests_module()
+            access_token = client.get_access_token()
             project_id = str(project_item.get("id") or "").strip()
             if not project_id:
                 raise ProjectWriteError("Microsoft Graph returnerte ikke id for prosjektmappen.")
 
-            requests = _load_requests_module()
-            access_token = client.get_access_token()
             delete_url = f"https://graph.microsoft.com/v1.0/users/{client.config.onedrive_user}/drive/items/{project_id}"
             response = requests.delete(delete_url, headers={"Authorization": f"Bearer {access_token}"}, timeout=60)
-            response.raise_for_status()
-            return project_path
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                if status_code == 404:
+                    return project_path, True
+                graph_response = _format_graph_error_response(getattr(exc, "response", None))
+                if graph_response:
+                    raise ProjectWriteError(f"Microsoft Graph-delete feilet ({graph_response}): {exc}") from exc
+                raise ProjectWriteError(f"Microsoft Graph-delete feilet: {exc}") from exc
+            return project_path, True
         except OneDriveClientError as exc:
             raise ProjectWriteError(f"Microsoft Graph-write feilet: {exc}") from exc
         except ProjectWriteError:
@@ -457,6 +484,23 @@ class SyncJobState:
     projects_synced: int = 0
     files_changed: int = 0
     reports_found: int = 0
+    status: str = "idle"
+
+
+@dataclass(slots=True)
+class AnalysisJobState:
+    running: bool = False
+    job_id: str | None = None
+    process: subprocess.Popen[str] | None = None
+    last_started_at: datetime | None = None
+    last_completed_at: datetime | None = None
+    last_error: str | None = None
+    projects_synced: int = 0
+    files_changed: int = 0
+    reports_found: int = 0
+    reports_generated: int = 0
+    email_mode: str | None = None
+    project_name: str | None = None
     status: str = "idle"
 
 
@@ -644,15 +688,19 @@ def _is_project_root_candidate(path: Path) -> bool:
 
 
 def _sort_comment_documents_key(report: ProjectReport) -> tuple[Any, ...]:
-    created_at = report.created_at or report.generated_at or report.modified_at
-    generated_at = report.generated_at or report.created_at or report.modified_at
+    created_at = report.created_at or datetime.min.replace(tzinfo=timezone.utc)
+    generated_at = report.generated_at or datetime.min.replace(tzinfo=timezone.utc)
     version_key = _report_version_sort_key(report.version)
     return (
-        created_at or datetime.min.replace(tzinfo=timezone.utc),
+        created_at,
         version_key,
-        generated_at or datetime.min.replace(tzinfo=timezone.utc),
+        generated_at,
         report.report_name.casefold(),
     )
+
+
+def _report_sort_timestamp(report: ProjectReport) -> datetime:
+    return report.created_at or report.generated_at or report.modified_at
 
 
 def _report_version_sort_key(version: str | None) -> tuple[int, ...]:
@@ -675,6 +723,25 @@ def _report_version_label(report_name: str) -> str | None:
     return raw_version or None
 
 
+def _is_comment_document_report_name(report_name: str) -> bool:
+    stem = Path(report_name).stem.strip()
+    if not stem:
+        return False
+    return bool(_COMMENT_DOCUMENT_REPORT_RE.search(stem))
+
+
+def _file_created_at(stat_result: os.stat_result) -> datetime:
+    birthtime = getattr(stat_result, "st_birthtime", None)
+    if birthtime is not None:
+        return datetime.fromtimestamp(birthtime, tz=OSLO_TIMEZONE)
+
+    ctime = getattr(stat_result, "st_ctime", None)
+    if ctime is not None:
+        return datetime.fromtimestamp(ctime, tz=OSLO_TIMEZONE)
+
+    return datetime.fromtimestamp(getattr(stat_result, "st_mtime", 0), tz=OSLO_TIMEZONE)
+
+
 class ApplianceService:
     def __init__(
         self,
@@ -688,6 +755,8 @@ class ApplianceService:
         self._onedrive_writer_override = onedrive_writer
         self._sync_lock = threading.Lock()
         self._sync_state = SyncJobState()
+        self._analysis_lock = threading.Lock()
+        self._analysis_state = AnalysisJobState()
 
     def health(self) -> HealthResponse:
         appliance_root = self.settings.resolved_appliance_root()
@@ -953,10 +1022,20 @@ class ApplianceService:
         cleaned_name = self._clean_project_name(project_name)
         self._require_sync_only_available()
         writer = self._onedrive_project_writer()
-        deleted_remote_path = writer.delete_project(
-            cleaned_name,
-            parent_remote_path=self.settings.onedrive_project_root(),
-        )
+        try:
+            deleted_result = writer.delete_project(
+                cleaned_name,
+                parent_remote_path=self.settings.onedrive_project_root(),
+            )
+        except ProjectWriteError:
+            raise
+        except Exception as exc:
+            raise ProjectWriteError(f"Microsoft Graph-delete feilet: {exc}") from exc
+        if isinstance(deleted_result, tuple):
+            deleted_remote_path, existed = deleted_result
+        else:
+            deleted_remote_path = str(deleted_result)
+            existed = True
         self._hide_project(cleaned_name)
         self._run_sync_for_project(None)
         refreshed = self.discover_projects()
@@ -967,8 +1046,10 @@ class ApplianceService:
         return ProjectDeleteResponse(
             project_name=cleaned_name,
             deleted_remote_path=deleted_remote_path,
+            deleted=True,
+            existed=existed,
             synced=True,
-            message="Prosjektet ble slettet i OneDrive og fjernet fra Nexus.",
+            message="Prosjektet finnes ikke lenger i OneDrive." if not existed else "Prosjektet ble slettet fra OneDrive.",
         )
 
     def delete_project_local_cache(self, project_name: str) -> ProjectLocalCacheDeleteResponse:
@@ -1086,6 +1167,69 @@ class ApplianceService:
                 reports_found=0,
             )
 
+    def start_analysis(self, project_name: str | None, *, email_mode: str = "daily_digest") -> AnalysisRunResponse:
+        self._require_analysis_available()
+        normalized_email_mode = self._normalize_email_mode(email_mode)
+        normalized_project_name = self._clean_project_name(project_name) if project_name is not None else None
+
+        with self._analysis_lock:
+            self._refresh_analysis_state_locked()
+            if self._analysis_state.running and self._analysis_state.job_id and self._analysis_state.last_started_at:
+                return AnalysisRunResponse(
+                    job_id=self._analysis_state.job_id,
+                    running=True,
+                    started_at=self._analysis_state.last_started_at,
+                    status="already_running",
+                    analysis_started=True,
+                    reports_generated=self._analysis_state.reports_generated,
+                    projects_synced=self._analysis_state.projects_synced,
+                    files_changed=self._analysis_state.files_changed,
+                    reports_found=self._analysis_state.reports_found,
+                    email_mode=self._analysis_state.email_mode or normalized_email_mode,
+                    project_name=self._analysis_state.project_name or normalized_project_name,
+                )
+
+            command = self._analysis_command(project_name=normalized_project_name, email_mode=normalized_email_mode)
+            self._validate_nexus_analysis_command(command)
+            started_at = datetime.now(OSLO_TIMEZONE)
+            job_id = uuid4().hex
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=self._appliance_repo_root(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except Exception as exc:
+                self._analysis_state.last_error = str(exc)
+                self._analysis_state.status = "failed"
+                raise AnalysisUnavailableError(f"Unable to start appliance analysis: {exc}") from exc
+
+            self._analysis_state = AnalysisJobState(
+                running=True,
+                job_id=job_id,
+                process=process,
+                last_started_at=started_at,
+                status="running",
+                email_mode=normalized_email_mode,
+                project_name=normalized_project_name,
+            )
+            threading.Thread(target=self._monitor_analysis_process, args=(job_id, process), daemon=True).start()
+            return AnalysisRunResponse(
+                job_id=job_id,
+                running=True,
+                started_at=started_at,
+                status="started",
+                analysis_started=True,
+                reports_generated=0,
+                projects_synced=0,
+                files_changed=0,
+                reports_found=0,
+                email_mode=normalized_email_mode,
+                project_name=normalized_project_name,
+            )
+
     def sync_status(self) -> SyncStatusResponse:
         with self._sync_lock:
             self._refresh_sync_state_locked()
@@ -1099,6 +1243,25 @@ class ApplianceService:
                 files_changed=self._sync_state.files_changed,
                 reports_found=self._sync_state.reports_found,
                 status=self._sync_state.status,
+            )
+
+    def analysis_status(self) -> AnalysisStatusResponse:
+        with self._analysis_lock:
+            self._refresh_analysis_state_locked()
+            return AnalysisStatusResponse(
+                running=self._analysis_state.running,
+                job_id=self._analysis_state.job_id,
+                last_started_at=self._analysis_state.last_started_at,
+                last_completed_at=self._analysis_state.last_completed_at,
+                last_error=self._analysis_state.last_error,
+                projects_synced=self._analysis_state.projects_synced,
+                files_changed=self._analysis_state.files_changed,
+                reports_found=self._analysis_state.reports_found,
+                reports_generated=self._analysis_state.reports_generated,
+                email_mode=self._analysis_state.email_mode,
+                project_name=self._analysis_state.project_name,
+                status=self._analysis_state.status,
+                analysis_started=self._analysis_state.running,
             )
 
     def debug_paths(self, project_name: str) -> ProjectDebugPathsResponse:
@@ -1299,7 +1462,8 @@ class ApplianceService:
         latest_comment_modified_at = record.latest_comment_modified_at
         if load_reports:
             latest_comment_document = reports[0].report_name if reports else latest_comment_document
-            latest_comment_document_open_url = self._report_open_url(record.project_name, "latest") if reports else latest_comment_document_open_url
+            if reports:
+                latest_comment_document_open_url = self._report_open_url(record.project_name, "latest") if reports[0].open_url else None
             latest_comment_created_at = reports[0].created_at if reports else latest_comment_created_at
             latest_comment_modified_at = reports[0].modified_at if reports else latest_comment_modified_at
 
@@ -1500,7 +1664,7 @@ class ApplianceService:
         warnings.extend(report_warnings)
         errors.extend(report_errors)
         latest_comment_document = reports[0].report_name if reports else None
-        latest_comment_document_open_url = self._report_open_url(project_name, "latest") if reports else None
+        latest_comment_document_open_url = self._report_open_url(project_name, "latest") if reports and reports[0].open_url else None
         latest_comment_created_at = reports[0].created_at if reports else None
         latest_comment_modified_at = reports[0].modified_at if reports else None
         comment_document_count = len(reports)
@@ -1692,7 +1856,15 @@ class ApplianceService:
                 candidates.append(resolved)
                 seen.add(key)
 
-        add(project_path / "Kommentarer")
+        if project_path.name.casefold() in COMMENT_ROOT_NAMES:
+            add(project_path)
+
+        try:
+            for candidate in sorted(project_path.rglob("*"), key=lambda item: item.as_posix().casefold()):
+                if candidate.is_dir() and candidate.name.casefold() in COMMENT_ROOT_NAMES:
+                    add(candidate)
+        except Exception as exc:
+            logger.warning("Unable to inspect report roots in %s: %s", project_path, exc)
         return candidates
 
     def _report_search_roots(self, root: Path) -> list[Path]:
@@ -1754,7 +1926,7 @@ class ApplianceService:
     def _report_file_metadata(self, candidate: Path) -> tuple[datetime, datetime | None, str | None]:
         try:
             stat_result = candidate.stat()
-            created_at = datetime.fromtimestamp(getattr(stat_result, "st_ctime", stat_result.st_mtime), tz=OSLO_TIMEZONE)
+            created_at = _file_created_at(stat_result)
         except Exception:
             created_at = datetime.fromtimestamp(0, tz=OSLO_TIMEZONE)
 
@@ -1783,6 +1955,144 @@ class ApplianceService:
                 return generated_at
         return None
 
+    def _history_report_candidates(
+        self,
+        project_name: str,
+        *,
+        relative_project_path: str | None = None,
+        is_sample_project: bool = False,
+    ) -> list[ProjectReport]:
+        if is_sample_project:
+            return []
+
+        project_name_normalized = _normalize_name(project_name)
+        reports: list[ProjectReport] = []
+        seen_keys: set[str] = set()
+
+        for history_path in self._report_history_paths():
+            try:
+                content = history_path.read_text(encoding="utf-8")
+            except Exception as exc:
+                logger.warning("Unable to read report history %s: %s", history_path, exc)
+                continue
+
+            for line in content.splitlines():
+                raw_line = line.strip()
+                if not raw_line:
+                    continue
+                try:
+                    payload = json.loads(raw_line)
+                except Exception:
+                    continue
+
+                if not self._history_entry_matches_project(payload, project_name_normalized):
+                    continue
+
+                report = self._project_report_from_history_entry(payload, project_name)
+                if report is None:
+                    continue
+
+                key = f"{report.report_name.casefold()}|{report.created_at.isoformat()}|{report.report_path.as_posix().casefold()}"
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                reports.append(report)
+
+        reports.sort(key=_sort_comment_documents_key, reverse=True)
+        return reports
+
+    def _report_history_paths(self) -> list[Path]:
+        candidates: list[Path] = []
+        outputs_root = self.settings.resolved_appliance_root() / "outputs"
+        if outputs_root.exists() and outputs_root.is_dir():
+            candidates.extend(sorted(outputs_root.rglob("history.jsonl"), key=lambda item: item.as_posix().casefold()))
+
+        for runtime_root in self.settings.runtime_roots():
+            if not runtime_root.exists() or not runtime_root.is_dir():
+                continue
+            candidates.extend(sorted(runtime_root.rglob("onedrive_sync_history.jsonl"), key=lambda item: item.as_posix().casefold()))
+
+        unique_candidates: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            resolved = candidate.expanduser().resolve(strict=False)
+            key = resolved.as_posix()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_candidates.append(resolved)
+        return unique_candidates
+
+    def _history_entry_matches_project(self, payload: Mapping[str, Any], project_name_normalized: str) -> bool:
+        for value in (
+            payload.get("project_name"),
+            payload.get("remote_root_path"),
+            payload.get("local_project_root"),
+            payload.get("local_report_path"),
+        ):
+            text = str(value or "").strip()
+            if not text:
+                continue
+            normalized = _normalize_name(Path(text.replace("\\", "/")).name)
+            if normalized == project_name_normalized:
+                return True
+            if _normalize_name(text).endswith(project_name_normalized):
+                return True
+
+        for key in ("report_snapshot", "analysis_snapshot"):
+            snapshot = payload.get(key)
+            if not isinstance(snapshot, Mapping):
+                continue
+            snapshot_project = str(snapshot.get("project_name") or "").strip()
+            if snapshot_project and _normalize_name(snapshot_project) == project_name_normalized:
+                return True
+        return False
+
+    def _project_report_from_history_entry(self, payload: Mapping[str, Any], project_name: str) -> ProjectReport | None:
+        del project_name
+        snapshot = payload.get("report_snapshot")
+        if not isinstance(snapshot, Mapping):
+            snapshot = payload.get("analysis_snapshot")
+        if not isinstance(snapshot, Mapping):
+            return None
+
+        generated_at = _parse_datetime(str(snapshot.get("generated_at") or payload.get("timestamp") or ""))
+        if generated_at is None:
+            return None
+
+        report_path_text = str(
+            payload.get("local_report_path")
+            or payload.get("output_docx_path")
+            or snapshot.get("local_report_path")
+            or snapshot.get("output_docx_path")
+            or ""
+        ).strip()
+        if not report_path_text:
+            return None
+
+        report_path = Path(report_path_text).expanduser()
+        report_name = report_path.name
+        if not _is_comment_document_report_name(report_name):
+            return None
+
+        report_type = report_path.suffix.lower().lstrip(".") or str(snapshot.get("report_type") or "").strip() or "unknown"
+        synthetic_report_path = Path(f"{report_path.as_posix()}#history#{generated_at.isoformat()}")
+        version = _report_version_label(report_name)
+
+        return ProjectReport(
+            report_name=report_name,
+            report_path=synthetic_report_path,
+            report_type=report_type,
+            version=version,
+            created_at=generated_at,
+            generated_at=generated_at,
+            modified_at=generated_at,
+            size_bytes=0,
+            is_latest=False,
+            open_url="",
+            download_url="",
+        )
+
     def _load_reports(
         self,
         project_path: Path,
@@ -1804,6 +2114,8 @@ class ApplianceService:
                 if candidate.name.casefold() == "run_summary.json":
                     continue
                 if candidate.suffix.lower() not in REPORT_SUFFIXES:
+                    continue
+                if not _is_comment_document_report_name(candidate.name):
                     continue
 
                 candidate_key = candidate.expanduser().resolve(strict=False).as_posix()
@@ -1832,6 +2144,8 @@ class ApplianceService:
                         modified_at=datetime.fromtimestamp(stat_result.st_mtime, tz=OSLO_TIMEZONE),
                         size_bytes=stat_result.st_size,
                         is_latest=False,
+                        open_url="filesystem",
+                        download_url="filesystem",
                     )
                 )
 
@@ -1844,12 +2158,34 @@ class ApplianceService:
             for comment_root in self._report_search_roots(root):
                 collect_from_root(comment_root)
 
-        if not reports:
-            output_relative_path = self._output_relative_path(relative_project_path)
-            if output_relative_path is not None:
-                outputs_root = self.settings.resolved_appliance_root() / "outputs" / output_relative_path
-                if outputs_root.exists() and outputs_root.is_dir():
-                    collect_from_root(outputs_root)
+        output_relative_path = self._output_relative_path(relative_project_path)
+        if output_relative_path is not None:
+            outputs_root = self.settings.resolved_appliance_root() / "outputs" / output_relative_path
+            if outputs_root.exists() and outputs_root.is_dir():
+                collect_from_root(outputs_root)
+
+        if len(reports) <= 1:
+            history_reports = self._history_report_candidates(
+                project_name,
+                relative_project_path=relative_project_path,
+                is_sample_project=is_sample_project,
+            )
+            if history_reports:
+                current_report_names = {report.report_name.casefold() for report in reports}
+                skipped_history_indices: set[int] = set()
+                for report_name in current_report_names:
+                    for index, history_report in enumerate(history_reports):
+                        if index in skipped_history_indices:
+                            continue
+                        if history_report.report_name.casefold() == report_name:
+                            skipped_history_indices.add(index)
+                            break
+
+                reports.extend(
+                    history_report
+                    for index, history_report in enumerate(history_reports)
+                    if index not in skipped_history_indices
+                )
 
         reports.sort(key=_sort_comment_documents_key, reverse=True)
         reports = [
@@ -1857,8 +2193,8 @@ class ApplianceService:
                 update={
                     "report_id": str(index),
                     "is_latest": index == 0,
-                    "open_url": self._report_open_url(project_name, str(index)),
-                    "download_url": self._report_download_url(project_name, str(index)),
+                    "open_url": self._report_open_url(project_name, str(index)) if report.open_url else "",
+                    "download_url": self._report_download_url(project_name, str(index)) if report.download_url else "",
                 }
             )
             for index, report in enumerate(reports)
@@ -2554,6 +2890,25 @@ class ApplianceService:
             "Nexus kan ikke synkronisere trygt før appliance støtter sync-only. Full analysepipeline er blokkert fra Nexus."
         )
 
+    def _analysis_supported(self) -> bool:
+        script_path = self._sync_script_path()
+        if not script_path.exists() or not script_path.is_file():
+            return False
+        try:
+            script_text = script_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            logger.warning("Unable to inspect appliance analysis script %s: %s", script_path, exc)
+            return False
+        required_flags = ("--force-analyze", "--provider", "--email-mode")
+        return all(flag in script_text for flag in required_flags)
+
+    def _require_analysis_available(self) -> None:
+        if self._analysis_supported():
+            return
+        raise AnalysisUnavailableError(
+            "Nexus kan ikke starte analyse før appliance støtter full analysepipeline."
+        )
+
     def _sync_command(self, *, project_name: str | None = None) -> list[str]:
         script_path = self._sync_script_path()
         command = [
@@ -2592,6 +2947,62 @@ class ApplianceService:
             if email_mode in {"immediate", "daily_digest"}:
                 raise ProjectSyncError(f"Nexus sync-kommando inneholder forbudt email-mode: {email_mode}")
 
+    def _normalize_email_mode(self, email_mode: str | None) -> str:
+        normalized = str(email_mode or "").strip().casefold()
+        if normalized not in {"daily_digest", "immediate"}:
+            raise AnalysisUnavailableError(f"Ugyldig email-mode for analyse: {email_mode}")
+        return normalized
+
+    def _analysis_command(self, *, project_name: str | None, email_mode: str) -> list[str]:
+        script_path = self._sync_script_path()
+        command = [
+            str(self._sync_python()),
+            str(script_path),
+            "--once",
+            "--all-roots",
+            "--force-analyze",
+            "--provider",
+            "openai",
+            "--analysis-profile",
+            "enterprise_review",
+            "--report-type",
+            "enterprise_review",
+            "--email-mode",
+            email_mode,
+            "--trigger-source",
+            "nexus_sync",
+            "--started-by",
+            "nexus-web",
+            "--company-root",
+            self.settings.onedrive_project_root(),
+        ]
+        if project_name:
+            command.extend(["--include-root-folder", project_name])
+        return command
+
+    def _validate_nexus_analysis_command(self, command: list[str]) -> None:
+        command_values = [str(value) for value in command]
+        if "--force-analyze" not in command_values:
+            raise AnalysisUnavailableError(
+                "Nexus kan ikke starte analyse før appliance støtter full analysepipeline."
+            )
+        if "--provider" not in command_values:
+            raise AnalysisUnavailableError("Nexus analysekommando mangler Microsoft Graph/LLM-provider.")
+        provider_index = command_values.index("--provider")
+        provider_value = command_values[provider_index + 1] if provider_index + 1 < len(command_values) else ""
+        if provider_value != "openai":
+            raise AnalysisUnavailableError(f"Nexus analysekommando må bruke OpenAI, ikke {provider_value!r}.")
+        if "--email-mode" not in command_values:
+            raise AnalysisUnavailableError("Nexus analysekommando mangler email-mode.")
+        email_index = command_values.index("--email-mode")
+        email_mode = command_values[email_index + 1] if email_index + 1 < len(command_values) else ""
+        if email_mode not in {"daily_digest", "immediate"}:
+            raise AnalysisUnavailableError(f"Nexus analysekommando bruker ugyldig email-mode: {email_mode}")
+        forbidden_flags = {"--sync-only"}
+        for flag in forbidden_flags:
+            if flag in command_values:
+                raise AnalysisUnavailableError(f"Nexus analysekommando inneholder forbudt flagg: {flag}")
+
     def _refresh_sync_state_locked(self) -> None:
         process = self._sync_state.process
         if process is None or not self._sync_state.running:
@@ -2601,6 +3012,16 @@ class ApplianceService:
         self._sync_state.running = False
         if self._sync_state.status == "running":
             self._sync_state.status = "completed" if process.returncode == 0 else "failed"
+
+    def _refresh_analysis_state_locked(self) -> None:
+        process = self._analysis_state.process
+        if process is None or not self._analysis_state.running:
+            return
+        if process.poll() is None:
+            return
+        self._analysis_state.running = False
+        if self._analysis_state.status == "running":
+            self._analysis_state.status = "completed" if process.returncode == 0 else "failed"
 
     def _monitor_sync_process(self, job_id: str, process: subprocess.Popen[str]) -> None:
         stdout, stderr = process.communicate()
@@ -2622,15 +3043,74 @@ class ApplianceService:
                 self._sync_state.status = "failed"
                 self._sync_state.last_error = (stderr or stdout or "OneDrive sync failed.").strip()[-2000:]
 
+    def _monitor_analysis_process(self, job_id: str, process: subprocess.Popen[str]) -> None:
+        stdout, stderr = process.communicate()
+        completed_at = datetime.now(OSLO_TIMEZONE)
+        summary = self._parse_cycle_summary(stdout)
+        with self._analysis_lock:
+            if self._analysis_state.job_id != job_id:
+                return
+            self._analysis_state.running = False
+            self._analysis_state.process = process
+            self._analysis_state.last_completed_at = completed_at
+            self._analysis_state.projects_synced = summary.get("projects_synced", 0)
+            self._analysis_state.files_changed = summary.get("files_changed", 0)
+            self._analysis_state.reports_found = summary.get("reports_found", 0)
+            self._analysis_state.reports_generated = summary.get("reports_generated", 0)
+            self._analysis_state.email_mode = summary.get("email_mode") or self._analysis_state.email_mode
+            self._analysis_state.project_name = summary.get("project_name") or self._analysis_state.project_name
+            if process.returncode == 0:
+                self._analysis_state.status = "completed"
+                self._analysis_state.last_error = None
+            else:
+                self._analysis_state.status = "failed"
+                self._analysis_state.last_error = (stderr or stdout or "Appliance analysis failed.").strip()[-2000:]
+
     def _parse_sync_summary(self, stdout: str) -> dict[str, int]:
+        parsed = self._parse_cycle_summary(stdout)
+        return {
+            "projects_synced": parsed.get("projects_synced", 0),
+            "files_changed": parsed.get("files_changed", 0),
+            "reports_found": parsed.get("reports_found", 0),
+        }
+
+    def _parse_cycle_summary(self, stdout: str) -> dict[str, Any]:
         payload = self._last_json_object(stdout)
         per_root_results = payload.get("per_root_results") if isinstance(payload, dict) else None
+        summary: dict[str, Any] = {
+            "projects_synced": 0,
+            "files_changed": 0,
+            "reports_found": 0,
+            "reports_generated": 0,
+            "email_mode": None,
+            "project_name": None,
+            "status": "unknown",
+        }
+        if not isinstance(payload, dict):
+            return summary
+
+        uploaded_reports = payload.get("uploaded_reports")
+        reports_generated_explicit = payload.get("reports_generated")
+        if reports_generated_explicit is not None:
+            summary["reports_generated"] = _parse_int(reports_generated_explicit, 0)
+        elif isinstance(uploaded_reports, list):
+            summary["reports_generated"] = len(uploaded_reports)
+
+        email_mode = str(payload.get("email_mode") or "").strip() or None
+        project_name = str(payload.get("project_name") or "").strip() or None
+        status = str(payload.get("email_status") or payload.get("status") or "").strip() or "unknown"
+        summary["email_mode"] = email_mode
+        summary["project_name"] = project_name
+        summary["status"] = status
+
         if not isinstance(per_root_results, list):
-            return {"projects_synced": 0, "files_changed": 0, "reports_found": 0}
+            return summary
 
         projects_synced = 0
         files_changed = 0
         reports_found = 0
+        reports_generated = summary["reports_generated"]
+        explicit_reports_generated = reports_generated_explicit is not None
         for item in per_root_results:
             if not isinstance(item, dict):
                 continue
@@ -2640,28 +3120,34 @@ class ApplianceService:
                 files_changed += _parse_int(item.get(key), 0)
             if item.get("reports_found") is not None:
                 reports_found += _parse_int(item.get("reports_found"), 0)
-                continue
-            uploaded_reports = item.get("uploaded_reports")
-            if isinstance(uploaded_reports, list):
-                reports_found += len(uploaded_reports)
-        return {
-            "projects_synced": projects_synced,
-            "files_changed": files_changed,
-            "reports_found": reports_found,
-        }
+            else:
+                uploaded_reports = item.get("uploaded_reports")
+                if isinstance(uploaded_reports, list):
+                    reports_found += len(uploaded_reports)
+            if not explicit_reports_generated and item.get("reports_generated") is not None:
+                reports_generated += _parse_int(item.get("reports_generated"), 0)
+
+        summary["projects_synced"] = projects_synced
+        summary["files_changed"] = files_changed
+        summary["reports_found"] = reports_found
+        summary["reports_generated"] = reports_generated
+        return summary
 
     def _last_json_object(self, text: str) -> dict[str, Any]:
         decoder = json.JSONDecoder()
         best: dict[str, Any] = {}
+        best_length = -1
         for index, char in enumerate(text):
             if char != "{":
                 continue
             try:
-                value, _ = decoder.raw_decode(text[index:])
+                value, end = decoder.raw_decode(text[index:])
             except Exception:
                 continue
             if isinstance(value, dict):
-                best = value
+                if end > best_length:
+                    best = value
+                    best_length = end
         return best
 
     def _read_appliance_version(self, appliance_root: Path) -> str | None:

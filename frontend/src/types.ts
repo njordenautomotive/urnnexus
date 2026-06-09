@@ -204,6 +204,8 @@ export interface ProjectLocalCacheDeleteResponse {
 export interface ProjectDeleteResponse {
   project_name: string;
   deleted_remote_path: string;
+  deleted: boolean;
+  existed: boolean;
   synced: boolean;
   message: string;
 }
@@ -255,4 +257,39 @@ export interface SyncStatusResponse {
   files_changed: number;
   reports_found: number;
   status: string;
+}
+
+export interface AnalysisRunRequest {
+  project_name?: string | null;
+  email_mode: "daily_digest" | "immediate";
+}
+
+export interface AnalysisRunResponse {
+  job_id: string;
+  running: boolean;
+  started_at: string;
+  status: string;
+  analysis_started: boolean;
+  reports_generated: number;
+  projects_synced: number;
+  files_changed: number;
+  reports_found: number;
+  email_mode: "daily_digest" | "immediate";
+  project_name: string | null;
+}
+
+export interface AnalysisStatusResponse {
+  running: boolean;
+  job_id: string | null;
+  last_started_at: string | null;
+  last_completed_at: string | null;
+  last_error: string | null;
+  projects_synced: number;
+  files_changed: number;
+  reports_found: number;
+  reports_generated: number;
+  email_mode: "daily_digest" | "immediate" | null;
+  project_name: string | null;
+  status: string;
+  analysis_started: boolean;
 }

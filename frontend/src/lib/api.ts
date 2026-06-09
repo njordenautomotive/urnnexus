@@ -1,4 +1,7 @@
 import type {
+  AnalysisRunRequest,
+  AnalysisRunResponse,
+  AnalysisStatusResponse,
   HealthResponse,
   FileUploadResponse,
   FolderCreateRequest,
@@ -6,7 +9,6 @@ import type {
   ProjectCreateRequest,
   ProjectCreateResponse,
   ProjectDeleteResponse,
-  ProjectLocalCacheDeleteResponse,
   ProjectDetailResponse,
   ProjectFilesResponse,
   ProjectListResponse,
@@ -296,10 +298,6 @@ export async function deleteProject(projectName: string): Promise<ProjectDeleteR
   return deleteJson<ProjectDeleteResponse>(projectUrl(projectName));
 }
 
-export async function deleteProjectLocalCache(projectName: string): Promise<ProjectLocalCacheDeleteResponse> {
-  return deleteJson<ProjectLocalCacheDeleteResponse>(projectUrl(projectName, "local-cache"));
-}
-
 export async function uploadProjectFile(projectName: string, file: File, targetFolder: string): Promise<FileUploadResponse> {
   const formData = new FormData();
   formData.set("file", file);
@@ -317,4 +315,12 @@ export async function runSync(): Promise<SyncRunResponse> {
 
 export async function getSyncStatus(): Promise<SyncStatusResponse> {
   return fetchJson<SyncStatusResponse>("/sync/status");
+}
+
+export async function runAnalysis(payload: AnalysisRunRequest): Promise<AnalysisRunResponse> {
+  return sendJson<AnalysisRunResponse>("/analysis/run", payload);
+}
+
+export async function getAnalysisStatus(): Promise<AnalysisStatusResponse> {
+  return fetchJson<AnalysisStatusResponse>("/analysis/status");
 }

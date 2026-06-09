@@ -8,9 +8,13 @@ import { sortProjectsByActivity, type ProjectViewModel } from "../lib/projects";
 import { useAppData } from "../context/AppDataContext";
 import { StatusPill } from "../components/StatusPill";
 import { CopyLinkButton } from "../components/CopyLinkButton";
-import type { SyncStatusResponse } from "../types";
+import type { HealthResponse, SyncStatusResponse } from "../types";
 
 const SYNC_ONLY_DESCRIPTION = "Henter filer og rapportliste fra OneDrive. Genererer ikke rapport.";
+
+export function resolveDashboardLastSyncedAt(syncStatus: SyncStatusResponse | null, health: HealthResponse | null): string | null {
+  return syncStatus?.last_completed_at ?? health?.last_synced_at ?? null;
+}
 
 export function DashboardPage() {
   const { projects, projectsLoading, projectsError, health, healthLoading, healthError, refresh } = useAppData();
@@ -24,6 +28,7 @@ export function DashboardPage() {
   const metrics = buildDashboardMetrics(visibleProjects);
   const syncPillStatus = syncStatus?.running ? "RUNNING" : syncStatus?.status ?? "idle";
   const syncPillLabel = syncStatus?.running ? "Synk pågår" : syncStatus?.status === "completed" ? "Sist synk fullført" : syncStatus?.status === "failed" ? "Synk feilet" : "Klar";
+  const dashboardLastSyncedAt = resolveDashboardLastSyncedAt(syncStatus, health);
   const recentReports = visibleProjects
     .filter((project) => project.latestReport !== null)
     .sort((left, right) => {
@@ -66,13 +71,23 @@ export function DashboardPage() {
 
   async function handleRunSync() {
     setSyncMessage("Starter trygg OneDrive-sync uten rapportgenerering ...");
+    let syncStarted = false;
     try {
       const response = await runSync();
+      syncStarted = true;
       setSyncMessage(response.status === "already_running" ? "OneDrive-sync kjører allerede." : "OneDrive-sync startet uten rapportgenerering.");
-      setSyncStatus(await getSyncStatus());
-      refresh();
+      try {
+        setSyncStatus(await getSyncStatus());
+        setSyncError(null);
+      } catch (error) {
+        setSyncError(error instanceof Error ? error.message : "Kunne ikke lese sync-status.");
+      }
     } catch (error) {
       setSyncMessage(error instanceof Error ? error.message : "Kunne ikke starte OneDrive-sync.");
+    } finally {
+      if (syncStarted) {
+        refresh();
+      }
     }
   }
 
@@ -83,8 +98,9 @@ export function DashboardPage() {
   return (
     <div className="page-stack">
       <AppHeader
-        title="URN Nexus"
-        description="Portal for OneDrive-prosjekter, filer og kommentardokumenter."
+        title="Kontrollsenter"
+        description="Oversikt over OneDrive-synk, rapporter, prosjekter og systemstatus."
+        eyebrow={null}
       />
 
       <section className="surface surface--padded">
@@ -94,8 +110,8 @@ export function DashboardPage() {
             <StatusPill status={applianceStatus} label={applianceLabel} />
           </div>
           <div className="dashboard-statusline__item">
-            <span className="dashboard-statusline__label">Siste synk</span>
-            <strong>{metrics.lastSyncedAt ? formatDateTime(metrics.lastSyncedAt) : "Ukjent"}</strong>
+            <span className="dashboard-statusline__label">Sist synk fullført</span>
+            <strong>{dashboardLastSyncedAt ? formatDateTime(dashboardLastSyncedAt) : "Ukjent"}</strong>
           </div>
           <div className="dashboard-statusline__item">
             <span className="dashboard-statusline__label">Siste analyse</span>
@@ -234,6 +250,5 @@ function buildDashboardMetrics(projects: ProjectViewModel[]) {
     totalReports: projects.reduce((sum, project) => sum + project.reportCount, 0),
     lastAnalyzedAt: newest(projects.map((project) => project.lastAnalyzedAt)),
     latestReportAt: newest(projects.map((project) => project.latestReport?.createdAt ?? null)),
-    lastSyncedAt: newest(projects.map((project) => project.lastSyncedAt)),
   };
 }

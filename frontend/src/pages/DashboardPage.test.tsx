@@ -2,9 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router-dom/server";
 import { describe, expect, it } from "vitest";
 import { AppDataContext } from "../context/AppDataContext";
+import { formatDateTime } from "../lib/api";
 import { createProjectViewModel } from "../lib/projects";
-import type { HealthResponse, ProjectSummary } from "../types";
-import { DashboardPage } from "./DashboardPage";
+import type { HealthResponse, ProjectSummary, SyncStatusResponse } from "../types";
+import { DashboardPage, resolveDashboardLastSyncedAt } from "./DashboardPage";
 
 function makeProject(overrides: Partial<ProjectSummary>): ProjectSummary {
   return {
@@ -35,10 +36,10 @@ const health: HealthResponse = {
   appliance_available: true,
   uptime_seconds: 120,
   uptime: "0:02:00",
-  version: "0.1.0",
+  version: "0.1.5",
   appliance_root: "/home/anbudklient/appliance",
   discovered_projects: 2,
-  last_synced_at: "2026-06-04T08:00:00+02:00",
+  last_synced_at: "2026-06-08T18:03:00+02:00",
   last_analyzed_at: "2026-06-04T08:15:00+02:00",
   latest_report_generated_at: "2026-06-04T08:15:00+02:00",
   project_count: 2,
@@ -61,6 +62,23 @@ const health: HealthResponse = {
 };
 
 describe("DashboardPage", () => {
+  it("prefers the completed sync timestamp over health for the top sync display", () => {
+    const syncStatus: SyncStatusResponse = {
+      running: false,
+      job_id: "sync-job",
+      last_started_at: "2026-06-09T08:45:00+02:00",
+      last_completed_at: "2026-06-09T08:49:00+02:00",
+      last_error: null,
+      projects_synced: 2,
+      files_changed: 4,
+      reports_found: 1,
+      status: "completed",
+    };
+
+    expect(resolveDashboardLastSyncedAt(syncStatus, health)).toBe("2026-06-09T08:49:00+02:00");
+    expect(formatDateTime(resolveDashboardLastSyncedAt(syncStatus, health))).toBe(formatDateTime("2026-06-09T08:49:00+02:00"));
+  });
+
   it("shows dashboard metrics and direct latest report actions without internal paths", () => {
     const projectWithReport = createProjectViewModel(makeProject({}));
     const projectWithoutReport = createProjectViewModel(
@@ -90,6 +108,7 @@ describe("DashboardPage", () => {
             healthLoading: false,
             healthError: null,
             refresh: () => undefined,
+            removeProjectByName: () => undefined,
           }}
         >
           <DashboardPage />
@@ -101,6 +120,11 @@ describe("DashboardPage", () => {
     expect(markup).toContain("Uten rapport");
     expect(markup).toContain("Synk OneDrive");
     expect(markup).toContain("Henter filer og rapportliste fra OneDrive. Genererer ikke rapport.");
+    expect(markup).toContain("Kontrollsenter");
+    expect(markup).not.toContain("page-header__eyebrow");
+    expect(markup).not.toContain("URN Nexus");
+    expect(markup).toContain("Sist synk fullført");
+    expect(markup).toContain(formatDateTime(health.last_synced_at));
     expect(markup).not.toContain("Generer rapport");
     expect(markup).toContain("Seneste rapporter");
     expect(markup).not.toContain("AnbudAppliance/Urban_Reuse_Norway");

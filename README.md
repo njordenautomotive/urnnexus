@@ -39,6 +39,12 @@ python -m uvicorn backend.main:app --reload
 
 Backend kjører normalt på `http://127.0.0.1:8000`.
 
+Hvis du oppretter en ny venv eller oppdaterer OneDrive-/Graph-avhengigheter, installer appliance-pakkene også:
+
+```bash
+python -m pip install -r /home/anbudklient/appliance/requirements.txt
+```
+
 ### 2. Start frontend
 
 ```bash

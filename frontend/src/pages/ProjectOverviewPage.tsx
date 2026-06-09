@@ -20,7 +20,7 @@ export function ProjectOverviewPage() {
           </div>
         </div>
 
-        <div className="detail-grid">
+        <div className="detail-grid detail-grid--overview">
           <div className="detail-card">
             <span>Prosjekt</span>
             <strong>{project.displayName}</strong>
@@ -53,7 +53,7 @@ export function ProjectOverviewPage() {
             <span>Siste rapport</span>
             <strong>{infoValue(project.latestReport?.name)}</strong>
           </div>
-          <div className="detail-card detail-card--wide">
+          <div className="detail-card">
             <span>Siste rapport opprettet</span>
             <strong>{project.latestReport?.createdAt ? formatDateTime(project.latestReport.createdAt) : "—"}</strong>
           </div>

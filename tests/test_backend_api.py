@@ -4,7 +4,8 @@ import asyncio
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -361,6 +362,95 @@ def _build_state_only_appliance_root(
     return appliance_root
 
 
+def _build_versioned_comment_appliance_root(
+    tmp_path: Path,
+    *,
+    project_name: str,
+    versions: list[str],
+) -> Path:
+    appliance_root = tmp_path / "appliance"
+    runtime_root = appliance_root / ".riveanbud_runtime" / "rive-anbud-appliance" / "Urban_Reuse_Norway"
+    project_root = (
+        runtime_root
+        / "cache"
+        / "onedrive_sync"
+        / "test-sync-id"
+        / "post@example.com"
+        / "test-drive-id"
+        / project_name
+    )
+    comments_root = project_root / "Kommentarer"
+    for folder in [
+        "Anbud",
+        "Bakgrunnsdokumenter",
+        "Tegninger",
+        "Tidligere kommunikasjon",
+        "Kommentarer",
+    ]:
+        (project_root / folder).mkdir(parents=True, exist_ok=True)
+
+    _write_file(project_root / "Anbud" / "tilbud.txt", b"tender", modified_at=datetime(2026, 6, 1, 8, 0, tzinfo=timezone.utc))
+    _write_file(project_root / "Bakgrunnsdokumenter" / "bakgrunn.pdf", b"background", modified_at=datetime(2026, 6, 1, 8, 5, tzinfo=timezone.utc))
+
+    base_time = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
+    for index, version in enumerate(versions):
+        _write_file(
+            comments_root / f"{project_name} - Kommentardokument - {version}.docx",
+            f"version-{version}".encode("utf-8"),
+            modified_at=base_time + timedelta(minutes=len(versions) - index),
+        )
+        time.sleep(0.01)
+
+    state_db = runtime_root / "state" / "onedrive_lightweight_state.sqlite3"
+    state_db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(state_db) as connection:
+        connection.execute(
+            """
+            CREATE TABLE projects (
+                project_name TEXT,
+                remote_root_path TEXT,
+                local_project_root TEXT,
+                analysis_status TEXT,
+                last_sync_at TEXT,
+                last_analyzed_at TEXT,
+                updated_at TEXT,
+                report_path TEXT,
+                report_url TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO projects (
+                project_name,
+                remote_root_path,
+                local_project_root,
+                analysis_status,
+                last_sync_at,
+                last_analyzed_at,
+                updated_at,
+                report_path,
+                report_url
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_name,
+                f"AnbudAppliance/Urban_Reuse_Norway/{project_name}",
+                str(project_root),
+                "completed_with_warnings",
+                "2026-06-02T08:50:00+00:00",
+                None,
+                "2026-06-02T08:55:00+00:00",
+                "",
+                "",
+            ),
+        )
+        connection.commit()
+
+    return appliance_root
+
+
 def test_health_reports_appliance_availability_and_version() -> None:
     client = _client()
 
@@ -369,7 +459,7 @@ def test_health_reports_appliance_availability_and_version() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["appliance_available"] is True
-    assert payload["version"] == "0.1.0"
+    assert payload["version"] == "0.1.5"
     assert payload["discovered_projects"] >= 6
     assert payload["uptime_seconds"] >= 0
     assert payload["appliance_root"].endswith("/home/anbudklient/appliance")
@@ -413,8 +503,8 @@ def test_projects_endpoint_lists_discovered_projects() -> None:
     assert bryn["hidden_internal_path"]
     assert bryn["status"]
     assert bryn["file_count"] == 395
-    assert bryn["report_count"] == 1
-    assert bryn["comment_document_count"] == 1
+    assert bryn["report_count"] == 3
+    assert bryn["comment_document_count"] == 3
     assert bryn["latest_comment_document"] == "Bryn Skole - Kommentardokument.docx"
     assert bryn["latest_comment_document_open_url"] == "/api/projects/Bryn%20Skole/reports/latest/open"
 
@@ -475,14 +565,15 @@ def test_sample_project_detail_reports_and_files() -> None:
 def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
     client = _client()
     for project_name, expected_file_count, expected_report_count, expected_latest, expected_children in [
-        ("Bryn Skole", 395, 1, "Bryn Skole - Kommentardokument.docx", ["OneDrive_1_21.5.2026 (1)"]),
+        ("Bryn Skole", 395, 3, "Bryn Skole - Kommentardokument.docx", ["OneDrive_1_21.5.2026 (1)"]),
         (
             "TestProsjekt#1",
-            3,
+            4,
             2,
             "TestProsjekt#1 - Kommentardokument.docx",
             [
                 "Dette er et testdokument.docx",
+                "Hvis dette kan leses så er det ganske kult da.docx",
                 "kontraktsgjennomgang_ellingsrud_tue.docx",
                 "Risikovurdering_Bryn_skole_riving_miljosanering_NS8417.docx",
             ],
@@ -783,6 +874,51 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     assert debug_payload["comment_documents_found"] == 2
     assert debug_payload["ignored_file_count"] == 2
     assert "Kommentarer folders are excluded from source file counts." in debug_payload["ignored_reasons"]
+
+
+def test_versioned_comment_documents_are_all_detected_and_sorted_by_created_at(tmp_path: Path) -> None:
+    appliance_root = _build_versioned_comment_appliance_root(
+        tmp_path,
+        project_name="Bryn Skole",
+        versions=["1.0", "2.0", "3.0", "4.0", "5.0", "6.0"],
+    )
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+    project = _project_path("Bryn Skole")
+
+    detail_response = client.get(f"/api/projects/{project}")
+    reports_response = client.get(f"/api/projects/{project}/reports")
+    projects_response = client.get("/api/projects")
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["project_name"] == "Bryn Skole"
+    assert detail["report_count"] == 6
+    assert detail["comment_document_count"] == 6
+    assert detail["latest_comment_document"] == "Bryn Skole - Kommentardokument - 6.0.docx"
+    assert detail["latest_comment_document_open_url"] == "/api/projects/Bryn%20Skole/reports/latest/open"
+
+    assert reports_response.status_code == 200
+    reports = reports_response.json()
+    assert reports["count"] == 6
+    assert [item["report_name"] for item in reports["reports"]] == [
+        "Bryn Skole - Kommentardokument - 6.0.docx",
+        "Bryn Skole - Kommentardokument - 5.0.docx",
+        "Bryn Skole - Kommentardokument - 4.0.docx",
+        "Bryn Skole - Kommentardokument - 3.0.docx",
+        "Bryn Skole - Kommentardokument - 2.0.docx",
+        "Bryn Skole - Kommentardokument - 1.0.docx",
+    ]
+    assert [item["version"] for item in reports["reports"]] == ["6.0", "5.0", "4.0", "3.0", "2.0", "1.0"]
+    assert reports["reports"][0]["is_latest"] is True
+    assert reports["reports"][0]["created_at"] is not None
+    assert reports["reports"][0]["open_url"] == "/api/projects/Bryn%20Skole/reports/0/open"
+    assert reports["reports"][0]["download_url"] == "/api/projects/Bryn%20Skole/reports/0/download"
+
+    assert projects_response.status_code == 200
+    projects = projects_response.json()
+    bryn = next(project for project in projects["projects"] if project["project_name"] == "Bryn Skole")
+    assert bryn["report_count"] == 6
+    assert bryn["comment_document_count"] == 6
 
 
 def test_project_write_operations_use_project_relative_paths(tmp_path: Path) -> None:
@@ -1175,12 +1311,116 @@ def test_delete_project_removes_project_from_nexus_and_calls_onedrive_delete(mon
     payload = response.json()
     assert payload["project_name"] == "Alpha Project"
     assert payload["deleted_remote_path"] == "AnbudAppliance/Urban_Reuse_Norway/Alpha Project"
+    assert payload["deleted"] is True
+    assert payload["existed"] is True
     assert payload["synced"] is True
+    assert payload["message"] == "Prosjektet ble slettet fra OneDrive."
     assert delete_calls == [("Alpha Project", "AnbudAppliance/Urban_Reuse_Norway")]
 
     projects_response = client.get("/api/projects")
     assert projects_response.status_code == 200
     assert projects_response.json()["projects"] == []
+
+
+def test_delete_project_missing_remote_returns_idempotent_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = _build_custom_appliance_root(tmp_path)
+    delete_calls: list[tuple[str, str]] = []
+
+    class FakeOneDriveWriter:
+        def create_project(self, project_name: str, *, folders: list[str], parent_remote_path: str) -> list[str]:
+            return folders
+
+        def create_project_folder(
+            self,
+            project_name: str,
+            folder_name: str,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            return {"id": "folder-id", "name": folder_name}
+
+        def upload_file(
+            self,
+            project_name: str,
+            filename: str,
+            content: bytes,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            return {"id": "file-id", "name": filename}
+
+        def delete_project(self, project_name: str, *, parent_remote_path: str) -> tuple[str, bool]:
+            delete_calls.append((project_name, parent_remote_path))
+            return f"{parent_remote_path}/{project_name}", False
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root), onedrive_writer=FakeOneDriveWriter())
+    service = app.state.appliance_service
+    monkeypatch.setattr(service, "_require_sync_only_available", lambda: None)
+    monkeypatch.setattr(service, "_run_sync_for_project", lambda project_name: None)
+    client = _AsyncAppClient(app)
+
+    response = client.delete("/api/projects/Alpha%20Project")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_name"] == "Alpha Project"
+    assert payload["deleted_remote_path"] == "AnbudAppliance/Urban_Reuse_Norway/Alpha Project"
+    assert payload["deleted"] is True
+    assert payload["existed"] is False
+    assert payload["synced"] is True
+    assert payload["message"] == "Prosjektet finnes ikke lenger i OneDrive."
+    assert delete_calls == [("Alpha Project", "AnbudAppliance/Urban_Reuse_Norway")]
+
+    projects_response = client.get("/api/projects")
+    assert projects_response.status_code == 200
+    assert projects_response.json()["projects"] == []
+
+
+def test_delete_project_graph_write_failure_returns_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = _build_custom_appliance_root(tmp_path)
+
+    class FakeOneDriveWriter:
+        def create_project(self, project_name: str, *, folders: list[str], parent_remote_path: str) -> list[str]:
+            return folders
+
+        def create_project_folder(
+            self,
+            project_name: str,
+            folder_name: str,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            return {"id": "folder-id", "name": folder_name}
+
+        def upload_file(
+            self,
+            project_name: str,
+            filename: str,
+            content: bytes,
+            *,
+            parent_remote_path: str,
+            target_folder: str | None = None,
+        ) -> dict[str, object]:
+            return {"id": "file-id", "name": filename}
+
+        def delete_project(self, project_name: str, *, parent_remote_path: str) -> str:
+            raise RuntimeError("Microsoft Graph permission denied")
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root), onedrive_writer=FakeOneDriveWriter())
+    service = app.state.appliance_service
+    monkeypatch.setattr(service, "_require_sync_only_available", lambda: None)
+    monkeypatch.setattr(service, "_run_sync_for_project", lambda project_name: None)
+    client = _AsyncAppClient(app)
+
+    response = client.delete("/api/projects/Alpha%20Project")
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["code"] == "write_error"
+    assert "Microsoft Graph permission denied" in payload["detail"]
 
 
 def test_sync_endpoint_starts_sync_only_nonblocking_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1274,4 +1514,127 @@ def test_sync_endpoint_fails_safely_when_sync_only_is_unavailable(monkeypatch: p
     assert payload["detail"] == (
         "Nexus kan ikke synkronisere trygt før appliance støtter sync-only. Full analysepipeline er blokkert fra Nexus."
     )
+    assert started_commands == []
+
+
+def test_analysis_endpoint_starts_full_pipeline_for_selected_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    script_path = appliance_root / "scripts" / "run_onedrive_appliance.py"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text("# supports --force-analyze --provider --email-mode\n", encoding="utf-8")
+    started_commands: list[list[str]] = []
+
+    class DummyProcess:
+        returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def communicate(self) -> tuple[str, str]:
+            self.returncode = 0
+            return (
+                json.dumps(
+                    {
+                        "project_name": "Bryn Skole",
+                        "status": "completed",
+                        "email_status": "sent",
+                        "email_mode": "immediate",
+                        "reports_generated": 1,
+                        "per_root_results": [
+                            {
+                                "root_name": "Bryn Skole",
+                                "status": "completed",
+                                "changed_files": 2,
+                                "reports_found": 1,
+                                "reports_generated": 1,
+                                "uploaded_reports": [{"status": "uploaded", "report_name": "Bryn Skole - Kommentardokument.docx"}],
+                            }
+                        ],
+                        "uploaded_reports": [
+                            {"status": "uploaded", "report_name": "Bryn Skole - Kommentardokument.docx"}
+                        ],
+                    }
+                ),
+                "",
+            )
+
+    def fake_popen(command: list[str], **_: object) -> DummyProcess:
+        started_commands.append(command)
+        return DummyProcess()
+
+    monkeypatch.setattr("backend.app.services.appliance.subprocess.Popen", fake_popen)
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+
+    response = client.post(
+        "/api/analysis/run",
+        json={"project_name": "Bryn Skole", "email_mode": "immediate"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["running"] is True
+    assert payload["status"] == "started"
+    assert payload["analysis_started"] is True
+    assert payload["reports_generated"] == 0
+    assert payload["projects_synced"] == 0
+    assert payload["files_changed"] == 0
+    assert payload["reports_found"] == 0
+    assert payload["email_mode"] == "immediate"
+    assert payload["project_name"] == "Bryn Skole"
+    assert started_commands
+    assert "run_onedrive_appliance.py" in started_commands[0][1]
+    assert "--once" in started_commands[0]
+    assert "--all-roots" in started_commands[0]
+    assert "--force-analyze" in started_commands[0]
+    assert "--provider" in started_commands[0]
+    assert "openai" in started_commands[0]
+    assert "--email-mode" in started_commands[0]
+    assert "immediate" in started_commands[0]
+    assert "--analysis-profile" in started_commands[0]
+    assert "enterprise_review" in started_commands[0]
+    assert "--report-type" in started_commands[0]
+    assert "--include-root-folder" in started_commands[0]
+    assert "Bryn Skole" in started_commands[0]
+    assert "--sync-only" not in started_commands[0]
+
+    status_payload = None
+    for _ in range(50):
+        status_response = client.get("/api/analysis/status")
+        assert status_response.status_code == 200
+        status_payload = status_response.json()
+        if status_payload["last_completed_at"] is not None:
+            break
+        time.sleep(0.01)
+
+    assert status_payload is not None
+    assert status_payload["running"] is False
+    assert status_payload["status"] == "completed"
+    assert status_payload["reports_generated"] == 1
+    assert status_payload["projects_synced"] == 1
+    assert status_payload["files_changed"] == 2
+    assert status_payload["reports_found"] == 1
+    assert status_payload["email_mode"] == "immediate"
+    assert status_payload["project_name"] == "Bryn Skole"
+
+
+def test_analysis_endpoint_fails_safely_when_full_pipeline_is_unavailable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    script_path = appliance_root / "scripts" / "run_onedrive_appliance.py"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text("# no safe analysis pipeline flags here\n", encoding="utf-8")
+    started_commands: list[list[str]] = []
+
+    def fake_popen(command: list[str], **_: object) -> object:
+        started_commands.append(command)
+        raise AssertionError("Nexus must not start analysis when the appliance pipeline is unavailable.")
+
+    monkeypatch.setattr("backend.app.services.appliance.subprocess.Popen", fake_popen)
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+
+    response = client.post("/api/analysis/run", json={"email_mode": "daily_digest"})
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["code"] == "analysis_unavailable"
+    assert payload["detail"] == "Nexus kan ikke starte analyse før appliance støtter full analysepipeline."
     assert started_commands == []

@@ -7,7 +7,7 @@ interface ProjectTableProps {
   projects: ProjectViewModel[];
   compact?: boolean;
   emptyLabel?: string;
-  onRemoveFromNexus?: (project: ProjectViewModel) => void;
+  onAnalyzeProject?: (project: ProjectViewModel) => void;
   onDeleteProject?: (project: ProjectViewModel) => void;
 }
 
@@ -19,7 +19,7 @@ export function ProjectTable({
   projects,
   compact = false,
   emptyLabel = "Ingen prosjekter å vise.",
-  onRemoveFromNexus,
+  onAnalyzeProject,
   onDeleteProject,
 }: ProjectTableProps) {
   const sortedProjects = sortProjectsByActivity(projects);
@@ -46,7 +46,7 @@ export function ProjectTable({
             <ProjectTableRow
               key={project.projectName}
               project={project}
-              onRemoveFromNexus={onRemoveFromNexus}
+              onAnalyzeProject={onAnalyzeProject}
               onDeleteProject={onDeleteProject}
             />
           ))}
@@ -58,11 +58,11 @@ export function ProjectTable({
 
 function ProjectTableRow({
   project,
-  onRemoveFromNexus,
+  onAnalyzeProject,
   onDeleteProject,
 }: {
   project: ProjectViewModel;
-  onRemoveFromNexus?: (project: ProjectViewModel) => void;
+  onAnalyzeProject?: (project: ProjectViewModel) => void;
   onDeleteProject?: (project: ProjectViewModel) => void;
 }) {
   return (
@@ -90,9 +90,9 @@ function ProjectTableRow({
           <Link className="button button--primary" to={project.projectHref}>
             Åpne prosjekt
           </Link>
-          {onRemoveFromNexus ? (
-            <button type="button" className="button button--secondary" onClick={() => onRemoveFromNexus(project)}>
-              Fjern fra Nexus
+          {onAnalyzeProject ? (
+            <button type="button" className="button button--secondary" onClick={() => onAnalyzeProject(project)}>
+              Analyser
             </button>
           ) : null}
           {onDeleteProject ? (

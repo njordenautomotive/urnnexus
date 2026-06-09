@@ -109,6 +109,12 @@ code {
   padding: 4px 4px 10px;
 }
 
+.sidebar__brand-text {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+}
+
 .sidebar__logo {
   width: 32px;
   height: 32px;
@@ -273,14 +279,6 @@ code {
   padding: 4px 0 0;
 }
 
-.project-header__eyebrow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
 .project-header__meta {
   display: flex;
   flex-wrap: wrap;
@@ -366,51 +364,73 @@ code {
   border-color: transparent;
 }
 
-.status-pill {
+.status-pill,
+.status-badge {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  padding: 0 10px;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: max-content;
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 6px 10px;
   border: 1px solid transparent;
   border-radius: 999px;
   white-space: nowrap;
+  line-height: 1;
   font-size: 0.82rem;
   font-weight: 700;
 }
 
-.status-pill__dot {
-  width: 8px;
-  height: 8px;
+.status-pill__dot,
+.status-badge__dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: currentColor;
 }
 
-.status-pill--success {
+.status-pill__label,
+.status-badge__label {
+  display: inline-block;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.status-pill--success,
+.status-badge--success {
   color: var(--success);
   background: var(--success-soft);
   border-color: rgba(21, 128, 61, 0.14);
 }
 
-.status-pill--warning {
+.status-pill--warning,
+.status-badge--warning {
   color: var(--warning);
   background: var(--warning-soft);
   border-color: rgba(180, 83, 9, 0.14);
 }
 
-.status-pill--danger {
+.status-pill--danger,
+.status-badge--danger {
   color: var(--danger);
   background: var(--danger-soft);
   border-color: rgba(180, 35, 24, 0.14);
 }
 
-.status-pill--info {
+.status-pill--info,
+.status-badge--info {
   color: var(--brand);
   background: var(--brand-soft);
   border-color: rgba(37, 99, 235, 0.14);
 }
 
-.status-pill--neutral {
+.status-pill--neutral,
+.status-badge--neutral {
   color: var(--text-muted);
   background: #f2f4f8;
   border-color: var(--border);
@@ -629,10 +649,18 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.detail-grid--overview {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  grid-auto-rows: minmax(104px, auto);
+}
+
 .health-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+  align-items: stretch;
+  grid-auto-rows: minmax(104px, auto);
 }
 
 .detail-grid--compact {
@@ -640,31 +668,158 @@ code {
 }
 
 .detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-alt);
   min-width: 0;
+  height: 100%;
 }
 
-.detail-card span {
+.health-card {
+  position: relative;
+  outline: none;
+  justify-content: space-between;
+}
+
+.health-card > span {
+  margin-bottom: 0;
+}
+
+.health-card:focus-visible {
+  border-color: var(--brand-strong);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+}
+
+.detail-card > span {
   display: block;
   margin-bottom: 6px;
   color: var(--text-muted);
   font-size: 0.8rem;
 }
 
-.detail-card strong {
+.detail-card > strong {
   display: block;
   overflow-wrap: anywhere;
 }
 
-.detail-card small {
+.detail-card > small {
   display: block;
   margin-top: 8px;
   color: var(--text-muted);
   font-size: 0.8rem;
   overflow-wrap: anywhere;
+}
+
+.health-card__value {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-height: 28px;
+  gap: 8px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.health-card__pair-grid {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.health-card__pair {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.health-card__pair span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.health-card__pair strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.health-card__tooltip {
+  position: absolute;
+  left: 12px;
+  top: calc(100% + 10px);
+  z-index: 50;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  white-space: normal;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.analysis-mode-list {
+  display: grid;
+  gap: 8px;
+}
+
+.analysis-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  cursor: pointer;
+}
+
+.analysis-mode-option input {
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.analysis-mode-option span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.analysis-mode-option strong {
+  font-size: 0.94rem;
+}
+
+.analysis-mode-option small {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.analysis-mode-option--active {
+  border-color: rgba(37, 99, 235, 0.24);
+  background: var(--brand-soft);
+}
+
+.health-card:hover .health-card__tooltip,
+.health-card:focus-visible .health-card__tooltip,
+.health-card:focus-within .health-card__tooltip {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .detail-card--wide {
@@ -1404,6 +1559,25 @@ code {
   color: var(--text-muted);
 }
 
+.project-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 60;
+  min-width: 240px;
+  max-width: min(380px, calc(100vw - 40px));
+  padding: 12px 14px;
+  border: 1px solid rgba(21, 128, 61, 0.24);
+  border-left: 4px solid var(--success);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1420,6 +1594,7 @@ code {
   .dashboard-summary,
   .dashboard-metrics,
   .detail-grid,
+  .detail-grid--overview,
   .filters-grid,
   .health-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1474,6 +1649,7 @@ code {
   }
 
   .dashboard-metrics,
+  .detail-grid--overview,
   .health-grid {
     grid-template-columns: 1fr;
   }
@@ -1541,6 +1717,7 @@ code {
   }
 
   .status-pill--neutral,
+  .status-badge--neutral,
   .chip__count,
   .file-type-icon {
     background: #1c2531;

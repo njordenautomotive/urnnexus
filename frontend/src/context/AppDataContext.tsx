@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getHealth, getProjects } from "../lib/api";
 import { createProjectViewModels, filterVisibleProjects, showSampleProjectsInUi, type ProjectViewModel } from "../lib/projects";
 import type { HealthResponse } from "../types";
@@ -12,6 +12,7 @@ interface AppDataContextValue {
   healthLoading: boolean;
   healthError: string | null;
   refresh: () => void;
+  removeProjectByName: (projectName: string) => void;
 }
 
 export const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -20,7 +21,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectViewModel[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
-  const [projectWarnings, setProjectWarnings] = useState<string[]>([]);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -30,7 +30,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     setProjectsLoading(true);
     setProjectsError(null);
-    setProjectWarnings([]);
     setHealthLoading(true);
     setHealthError(null);
 
@@ -49,14 +48,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const visibleProjects = filterVisibleProjects(projectsResult.value.projects, showSampleProjectsInUi);
           const viewModels = createProjectViewModels(visibleProjects);
           setProjects(viewModels);
-          setProjectWarnings(
-            Array.from(
-              new Set(viewModels.flatMap((project) => project.issues.map((issue) => issue.message)).filter((message) => message.trim().length > 0)),
-            ),
-          );
         } else {
           setProjects([]);
-          setProjectWarnings([]);
           setProjectsError(projectsResult.reason instanceof Error ? projectsResult.reason.message : "Kunne ikke laste prosjekter.");
         }
 
@@ -80,6 +73,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshIndex]);
 
+  const projectWarnings = useMemo(
+    () =>
+      Array.from(new Set(projects.flatMap((project) => project.issues.map((issue) => issue.message)).filter((message) => message.trim().length > 0))),
+    [projects],
+  );
+
   const value: AppDataContextValue = {
     projects,
     projectsLoading,
@@ -89,6 +88,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     healthLoading,
     healthError,
     refresh: () => setRefreshIndex((value) => value + 1),
+    removeProjectByName: (projectName: string) =>
+      setProjects((current) => current.filter((project) => project.projectName !== projectName)),
   };
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

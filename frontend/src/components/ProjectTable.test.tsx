@@ -33,7 +33,7 @@ describe("ProjectTable", () => {
       <StaticRouter location="/projects">
         <ProjectTable
           projects={[createProjectViewModel(project)]}
-          onRemoveFromNexus={() => undefined}
+          onAnalyzeProject={() => undefined}
           onDeleteProject={() => undefined}
         />
       </StaticRouter>,
@@ -43,7 +43,7 @@ describe("ProjectTable", () => {
     expect(markup).toContain("Urban_Reuse_Norway/Bryn Skole");
     expect(markup).toContain("Bryn Skole - Kommentardokument.docx");
     expect(markup).toContain("Åpne prosjekt");
-    expect(markup).toContain("Fjern fra Nexus");
+    expect(markup).toContain("Analyser");
     expect(markup).toContain("Slett prosjekt");
     expect(markup).not.toContain("/home/anbudklient/appliance/.riveanbud_runtime");
   });

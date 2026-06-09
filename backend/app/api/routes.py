@@ -8,6 +8,9 @@ from fastapi.responses import FileResponse
 
 from backend.app.models.health import HealthResponse
 from backend.app.models.operations import (
+    AnalysisRunRequest,
+    AnalysisRunResponse,
+    AnalysisStatusResponse,
     FileUploadResponse,
     FolderCreateRequest,
     FolderCreateResponse,
@@ -144,6 +147,16 @@ def run_sync(service: ApplianceService = Depends(get_service)) -> SyncRunRespons
 @router.get("/sync/status", response_model=SyncStatusResponse)
 def sync_status(service: ApplianceService = Depends(get_service)) -> SyncStatusResponse:
     return service.sync_status()
+
+
+@router.post("/analysis/run", response_model=AnalysisRunResponse)
+def run_analysis(payload: AnalysisRunRequest, service: ApplianceService = Depends(get_service)) -> AnalysisRunResponse:
+    return service.start_analysis(payload.project_name, email_mode=payload.email_mode)
+
+
+@router.get("/analysis/status", response_model=AnalysisStatusResponse)
+def analysis_status(service: ApplianceService = Depends(get_service)) -> AnalysisStatusResponse:
+    return service.analysis_status()
 
 
 @router.get("/projects/{project_name}", response_model=ProjectDetailResponse)

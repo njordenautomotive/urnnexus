@@ -1,25 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppHeader } from "../components/Layout";
 import { ErrorState } from "../components/ErrorState";
 import { ProjectTable } from "../components/ProjectTable";
 import { useAppData } from "../context/AppDataContext";
-import { createProject, deleteProject, deleteProjectLocalCache, projectUrl } from "../lib/api";
+import { ApiRequestError, createProject, deleteProject, projectUrl } from "../lib/api";
 import type { ProjectViewModel } from "../lib/projects";
 
 export function ProjectsPage() {
   const navigate = useNavigate();
-  const { projects, projectsLoading, projectsError, health, healthLoading, refresh } = useAppData();
+  const { projects, projectsLoading, projectsError, health, healthLoading, refresh, removeProjectByName } = useAppData();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [createMessage, setCreateMessage] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [projectToRemove, setProjectToRemove] = useState<ProjectViewModel | null>(null);
-  const [removeMessage, setRemoveMessage] = useState<string | null>(null);
-  const [isRemoving, setIsRemoving] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<ProjectViewModel | null>(null);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const isInitialProjectsLoad = projectsLoading && projects.length === 0;
   const graphWriteReady = health?.graph_write_status === "configured";
   const createDisabledReason = healthLoading
@@ -27,6 +25,14 @@ export function ProjectsPage() {
     : graphWriteReady
       ? null
       : (health?.graph_write_detail ?? "Microsoft Graph-write er ikke konfigurert.");
+
+  useEffect(() => {
+    if (!toastMessage) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setToastMessage(null), 3600);
+    return () => window.clearTimeout(timeout);
+  }, [toastMessage]);
 
   async function handleCreateProject() {
     if (!newProjectName.trim() || isCreating) {
@@ -48,24 +54,6 @@ export function ProjectsPage() {
     }
   }
 
-  async function handleRemoveFromNexus() {
-    if (!projectToRemove || isRemoving) {
-      return;
-    }
-    setIsRemoving(true);
-    setRemoveMessage(null);
-    try {
-      const response = await deleteProjectLocalCache(projectToRemove.projectName);
-      setRemoveMessage(response.message);
-      setProjectToRemove(null);
-      refresh();
-    } catch (error) {
-      setRemoveMessage(error instanceof Error ? error.message : "Kunne ikke fjerne prosjektet fra Nexus.");
-    } finally {
-      setIsRemoving(false);
-    }
-  }
-
   async function handleDeleteProject() {
     if (!projectToDelete || isDeleting) {
       return;
@@ -74,10 +62,20 @@ export function ProjectsPage() {
     setDeleteMessage(null);
     try {
       const response = await deleteProject(projectToDelete.projectName);
-      setDeleteMessage(response.message);
+      removeProjectByName(projectToDelete.projectName);
+      setDeleteMessage(null);
+      setToastMessage(response.message);
       setProjectToDelete(null);
-      refresh();
+      void refresh();
     } catch (error) {
+      if (projectToDelete && isDeleteProjectMissingError(error, projectToDelete)) {
+        removeProjectByName(projectToDelete.projectName);
+        setDeleteMessage(null);
+        setToastMessage("Prosjektet finnes ikke lenger i OneDrive.");
+        setProjectToDelete(null);
+        void refresh();
+        return;
+      }
       setDeleteMessage(error instanceof Error ? error.message : "Kunne ikke slette prosjektet i OneDrive.");
     } finally {
       setIsDeleting(false);
@@ -90,10 +88,12 @@ export function ProjectsPage() {
 
   return (
     <div className="page-stack">
-        <AppHeader
+      <AppHeader
         title="Prosjekter"
         description="Ryddig liste over OneDrive-prosjekter. Standardvisningen skjuler sample-prosjekter og lokale cache-prosjekter."
       />
+
+      {toastMessage ? <ProjectToast message={toastMessage} /> : null}
 
       <section className="surface surface--padded">
         <div className="section-head">
@@ -115,7 +115,6 @@ export function ProjectsPage() {
           </div>
         </div>
         {createMessage ? <div className="inline-note">{createMessage}</div> : null}
-        {removeMessage ? <div className="inline-note">{removeMessage}</div> : null}
         {deleteMessage ? <div className="inline-note">{deleteMessage}</div> : null}
         {createDisabledReason ? <div className="inline-note">{createDisabledReason}</div> : null}
         {isInitialProjectsLoad ? (
@@ -124,7 +123,6 @@ export function ProjectsPage() {
           <ProjectTable
             projects={projects}
             emptyLabel="Ingen prosjekter å vise."
-            onRemoveFromNexus={setProjectToRemove}
             onDeleteProject={setProjectToDelete}
           />
         )}
@@ -161,15 +159,6 @@ export function ProjectsPage() {
         </div>
       ) : null}
 
-      {projectToRemove ? (
-        <RemoveProjectConfirmationDialog
-          project={projectToRemove}
-          isRemoving={isRemoving}
-          onCancel={() => setProjectToRemove(null)}
-          onConfirm={() => void handleRemoveFromNexus()}
-        />
-      ) : null}
-
       {projectToDelete ? (
         <DeleteProjectConfirmationDialog
           project={projectToDelete}
@@ -178,46 +167,6 @@ export function ProjectsPage() {
           onConfirm={() => void handleDeleteProject()}
         />
       ) : null}
-    </div>
-  );
-}
-
-export function RemoveProjectConfirmationDialog({
-  project,
-  isRemoving,
-  onCancel,
-  onConfirm,
-}: {
-  project: ProjectViewModel;
-  isRemoving: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="remove-project-title">
-        <div className="section-head">
-          <div>
-            <div className="section-kicker">Prosjekt</div>
-            <h2 className="section-title" id="remove-project-title">
-              Fjern fra Nexus
-            </h2>
-          </div>
-          <button type="button" className="button button--secondary" onClick={onCancel} disabled={isRemoving}>
-            Lukk
-          </button>
-        </div>
-        <p className="modal-copy">Dette fjerner prosjektet fra Nexus-visningen og lokal cache. Det sletter ikke prosjektet i OneDrive.</p>
-        <div className="project-table__name">{project.displayName}</div>
-        <div className="modal-panel__actions">
-          <button type="button" className="button button--secondary" onClick={onCancel} disabled={isRemoving}>
-            Avbryt
-          </button>
-          <button type="button" className="button" onClick={onConfirm} disabled={isRemoving}>
-            Fjern fra Nexus
-          </button>
-        </div>
-      </section>
     </div>
   );
 }
@@ -260,4 +209,21 @@ export function DeleteProjectConfirmationDialog({
       </section>
     </div>
   );
+}
+
+function ProjectToast({ message }: { message: string }) {
+  return (
+    <div className="project-toast" role="status" aria-live="polite">
+      {message}
+    </div>
+  );
+}
+
+function isDeleteProjectMissingError(error: unknown, project: ProjectViewModel): boolean {
+  if (!(error instanceof ApiRequestError) || error.status !== 404) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  const projectPath = project.raw.relative_project_path.toLowerCase();
+  return message.includes(projectPath);
 }

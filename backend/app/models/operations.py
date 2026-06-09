@@ -33,8 +33,29 @@ class ProjectLocalCacheDeleteResponse(ApiModel):
 class ProjectDeleteResponse(ApiModel):
     project_name: str
     deleted_remote_path: str
+    deleted: bool = True
+    existed: bool = True
     synced: bool = True
-    message: str = "Prosjektet ble slettet i OneDrive og fjernet fra Nexus."
+    message: str = "Prosjektet ble slettet fra OneDrive."
+
+
+class AnalysisRunRequest(ApiModel):
+    project_name: str | None = None
+    email_mode: Literal["daily_digest", "immediate"] = "daily_digest"
+
+
+class AnalysisRunResponse(ApiModel):
+    job_id: str
+    running: bool
+    started_at: datetime
+    status: str
+    analysis_started: bool = True
+    reports_generated: int = 0
+    projects_synced: int = 0
+    files_changed: int = 0
+    reports_found: int = 0
+    email_mode: Literal["daily_digest", "immediate"] = "daily_digest"
+    project_name: str | None = None
 
 
 class FileUploadResponse(ApiModel):
@@ -84,3 +105,19 @@ class SyncStatusResponse(ApiModel):
     files_changed: int = 0
     reports_found: int = 0
     status: str = "idle"
+
+
+class AnalysisStatusResponse(ApiModel):
+    running: bool
+    job_id: str | None = None
+    last_started_at: datetime | None = None
+    last_completed_at: datetime | None = None
+    last_error: str | None = None
+    projects_synced: int = 0
+    files_changed: int = 0
+    reports_found: int = 0
+    reports_generated: int = 0
+    email_mode: Literal["daily_digest", "immediate"] | None = None
+    project_name: str | None = None
+    status: str = "idle"
+    analysis_started: bool = False

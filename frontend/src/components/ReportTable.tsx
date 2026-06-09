@@ -43,19 +43,27 @@ export function ReportTable({ reports }: ReportTableProps) {
                   />
                 </div>
               </td>
-              <td>{formatDateTime(report.created_at ?? report.modified_at)}</td>
+              <td>{formatDateTime(report.created_at)}</td>
               <td>{formatDateTime(report.modified_at)}</td>
               <td>{formatBytes(report.size_bytes)}</td>
               <td>
-                <div className="table-actions">
-                  <a className="button button--subtle" href={report.open_url} target="_blank" rel="noreferrer">
-                    Åpne
-                  </a>
-                  <a className="button button--subtle" href={report.download_url}>
-                    Last ned
-                  </a>
-                  <CopyLinkButton href={report.open_url} />
-                </div>
+                {report.open_url || report.download_url ? (
+                  <div className="table-actions">
+                    {report.open_url ? (
+                      <a className="button button--subtle" href={report.open_url} target="_blank" rel="noreferrer">
+                        Åpne
+                      </a>
+                    ) : null}
+                    {report.download_url ? (
+                      <a className="button button--subtle" href={report.download_url}>
+                        Last ned
+                      </a>
+                    ) : null}
+                    {report.open_url ? <CopyLinkButton href={report.open_url} /> : null}
+                  </div>
+                ) : (
+                  <span className="report-table__path">Kun historikk</span>
+                )}
               </td>
             </tr>
           ))}

@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/Layout";
+import { AnalysisPage } from "./pages/AnalysisPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HealthPage } from "./pages/HealthPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -13,13 +14,14 @@ export function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/health" element={<HealthPage />} />
-        <Route path="/projects/:projectName" element={<ProjectPage />}>
-          <Route index element={<ProjectOverviewPage />} />
-          <Route path="files" element={<ProjectFilesPage />} />
-          <Route path="reports" element={<ProjectReportsPage />} />
+      <Route index element={<DashboardPage />} />
+      <Route path="/projects" element={<ProjectsPage />} />
+      <Route path="/analysis" element={<AnalysisPage />} />
+      <Route path="/health" element={<HealthPage />} />
+      <Route path="/projects/:projectName" element={<ProjectPage />}>
+        <Route index element={<ProjectOverviewPage />} />
+        <Route path="files" element={<ProjectFilesPage />} />
+        <Route path="reports" element={<ProjectReportsPage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Route>

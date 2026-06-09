@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { AppDataContext } from "../context/AppDataContext";
 import { createProjectViewModel } from "../lib/projects";
 import type { HealthResponse, ProjectSummary } from "../types";
-import { DeleteProjectConfirmationDialog, ProjectsPage, RemoveProjectConfirmationDialog } from "./ProjectsPage";
+import { DeleteProjectConfirmationDialog, ProjectsPage } from "./ProjectsPage";
 
 function makeProject(projectName: string): ProjectSummary {
   return {
@@ -35,7 +35,7 @@ const health: HealthResponse = {
   appliance_available: true,
   uptime_seconds: 120,
   uptime: "0:02:00",
-  version: "0.1.0",
+  version: "0.1.5",
   appliance_root: "/home/anbudklient/appliance",
   discovered_projects: 1,
   last_synced_at: "2026-06-04T08:00:00+02:00",
@@ -74,6 +74,7 @@ describe("ProjectsPage", () => {
             healthLoading: false,
             healthError: null,
             refresh: () => undefined,
+            removeProjectByName: () => undefined,
           }}
         >
           <ProjectsPage />
@@ -82,21 +83,10 @@ describe("ProjectsPage", () => {
     );
 
     expect(markup).toContain("Nytt prosjekt");
+    expect(markup).not.toContain("URN Nexus");
+    expect(markup).not.toContain("page-header__eyebrow");
     expect(markup).toContain("Microsoft Graph-write mangler konfigurasjon");
     expect(markup).toContain("disabled");
-  });
-
-  it("renders remove confirmation copy before local cache deletion", () => {
-    const project = createProjectViewModel(makeProject("Dette er bare en test"));
-    const markup = renderToStaticMarkup(
-      <StaticRouter location="/projects">
-        <RemoveProjectConfirmationDialog project={project} isRemoving={false} onCancel={() => undefined} onConfirm={() => undefined} />
-      </StaticRouter>,
-    );
-
-    expect(markup).toContain("Fjern fra Nexus");
-    expect(markup).toContain("Dette fjerner prosjektet fra Nexus-visningen og lokal cache. Det sletter ikke prosjektet i OneDrive.");
-    expect(markup).toContain("Dette er bare en test");
   });
 
   it("renders delete confirmation copy before OneDrive deletion", () => {
@@ -110,5 +100,6 @@ describe("ProjectsPage", () => {
     expect(markup).toContain("Slett prosjekt");
     expect(markup).toContain("Dette sletter prosjektet i OneDrive og fjerner det fra Nexus etter synk.");
     expect(markup).toContain("Bryn Skole");
+    expect(markup).not.toContain("Fjern fra Nexus");
   });
 });
