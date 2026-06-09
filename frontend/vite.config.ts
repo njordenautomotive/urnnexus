@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
+    allowedHosts: ["nexus.saskali.no"],
     proxy: {
       "/api": {
         target: backendTarget,
@@ -20,4 +21,3 @@ export default defineConfig({
     port: 4173,
   },
 });
-
