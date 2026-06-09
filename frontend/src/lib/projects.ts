@@ -100,6 +100,13 @@ export function isSampleProject(project: ProjectSummary): boolean {
   return project.is_sample_project;
 }
 
+export function displaySourceLabel(project: ProjectSummary): string {
+  if (project.is_sample_project) {
+    return "Demo/lokal sample";
+  }
+  return project.source_label;
+}
+
 export function isLocalCacheOnlyProject(project: ProjectSummary): boolean {
   return Boolean(project.is_local_cache_only) || project.source_label.trim().toLowerCase() === "kun lokal cache";
 }
@@ -290,7 +297,7 @@ export function createProjectViewModel(project: ProjectSummary): ProjectViewMode
     raw: project,
     projectName: project.project_name,
     displayName: project.display_name,
-    sourceLabel: project.source_label,
+    sourceLabel: displaySourceLabel(project),
     isLocalCacheOnly: isLocalCacheOnlyProject(project),
     breadcrumbPath,
     projectHref: projectUrl(project.project_name),

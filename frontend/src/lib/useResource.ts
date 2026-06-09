@@ -18,7 +18,8 @@ export function useResource<T>(loader: () => Promise<T>, dependencies: Dependenc
     setLoading(true);
     setError(null);
 
-    loader()
+    Promise.resolve()
+      .then(loader)
       .then((value) => {
         if (active) {
           setData(value);
@@ -48,4 +49,3 @@ export function useResource<T>(loader: () => Promise<T>, dependencies: Dependenc
     reload: () => setReloadIndex((value) => value + 1),
   };
 }
-

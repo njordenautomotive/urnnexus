@@ -17,7 +17,8 @@ describe("formatter helpers", () => {
   it("builds and decodes project urls safely", () => {
     expect(projectUrl("Bryn Skole")).toBe("/projects/Bryn%20Skole");
     expect(projectUrl("TestProsjekt#1", "files")).toBe("/projects/TestProsjekt%231/files");
+    expect(projectUrl("Sørkedalsveien 6")).toBe("/projects/S%C3%B8rkedalsveien%206");
     expect(safeDecodeProjectName("TestProsjekt%231")).toBe("TestProsjekt#1");
+    expect(safeDecodeProjectName("S%C3%B8rkedalsveien%206")).toBe("Sørkedalsveien 6");
   });
 });
-

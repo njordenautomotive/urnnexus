@@ -57,6 +57,10 @@ describe("project visibility helpers", () => {
     expect(displayProjectPath("sample_projects/Testprosjekt")).toBe("sample_projects/Testprosjekt");
   });
 
+  it("labels sample projects as demo/local samples instead of OneDrive", () => {
+    expect(createProjectViewModel(makeProject("Testprosjekt", true)).sourceLabel).toBe("Demo/lokal sample");
+  });
+
   it("maps raw API status and report counts into one shared status model", () => {
     expect(createProjectViewModel(makeProject("Ferdig", false)).status.level).toBe("SUCCESS");
     expect(createProjectViewModel({ ...makeProject("Varsel", false), status: "completed_with_warnings" }).status.level).toBe("SUCCESS_WITH_WARNINGS");

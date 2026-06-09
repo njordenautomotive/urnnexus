@@ -31,63 +31,50 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setProjectsLoading(true);
     setProjectsError(null);
     setProjectWarnings([]);
-
-    getProjects({ includeSampleProjects: showSampleProjectsInUi })
-      .then((response) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        const visibleProjects = filterVisibleProjects(response.projects, showSampleProjectsInUi);
-        const viewModels = createProjectViewModels(visibleProjects);
-        setProjects(viewModels);
-        setProjectWarnings(
-          Array.from(
-            new Set(viewModels.flatMap((project) => project.issues.map((issue) => issue.message)).filter((message) => message.trim().length > 0)),
-          ),
-        );
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setProjects([]);
-        setProjectsError(error instanceof Error ? error.message : "Kunne ikke laste prosjekter.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setProjectsLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [refreshIndex]);
-
-  useEffect(() => {
-    const controller = new AbortController();
     setHealthLoading(true);
     setHealthError(null);
 
-    getHealth()
-      .then((response) => {
-        if (!controller.signal.aborted) {
-          setHealth(response);
-        }
-      })
-      .catch((error: unknown) => {
+    async function loadAppData() {
+      try {
+        const [projectsResult, healthResult] = await Promise.allSettled([
+          Promise.resolve().then(() => getProjects({ includeSampleProjects: showSampleProjectsInUi })),
+          Promise.resolve().then(() => getHealth()),
+        ]);
+
         if (controller.signal.aborted) {
           return;
         }
-        setHealth(null);
-        setHealthError(error instanceof Error ? error.message : "Kunne ikke lese helsestatus.");
-      })
-      .finally(() => {
+
+        if (projectsResult.status === "fulfilled") {
+          const visibleProjects = filterVisibleProjects(projectsResult.value.projects, showSampleProjectsInUi);
+          const viewModels = createProjectViewModels(visibleProjects);
+          setProjects(viewModels);
+          setProjectWarnings(
+            Array.from(
+              new Set(viewModels.flatMap((project) => project.issues.map((issue) => issue.message)).filter((message) => message.trim().length > 0)),
+            ),
+          );
+        } else {
+          setProjects([]);
+          setProjectWarnings([]);
+          setProjectsError(projectsResult.reason instanceof Error ? projectsResult.reason.message : "Kunne ikke laste prosjekter.");
+        }
+
+        if (healthResult.status === "fulfilled") {
+          setHealth(healthResult.value);
+        } else {
+          setHealth(null);
+          setHealthError(healthResult.reason instanceof Error ? healthResult.reason.message : "Kunne ikke lese helsestatus.");
+        }
+      } finally {
         if (!controller.signal.aborted) {
+          setProjectsLoading(false);
           setHealthLoading(false);
         }
-      });
+      }
+    }
 
+    void loadAppData();
     return () => {
       controller.abort();
     };

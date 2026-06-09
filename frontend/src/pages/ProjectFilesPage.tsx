@@ -3,12 +3,11 @@ import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
 import { StatusPill } from "../components/StatusPill";
 import { createProjectFolder, formatBytes, formatDateTime, getProjectFiles, uploadProjectFile } from "../lib/api";
-import { flattenFileTree, type FlatFileRecord } from "../lib/fileTree";
+import { buildBreadcrumbs, buildSearchResults, getFolderNode, getVisibleFolderChildren, type FileSortKey } from "../lib/fileBrowser";
+import type { FlatFileRecord } from "../lib/fileTree";
 import { useResource } from "../lib/useResource";
 import type { FileNode } from "../types";
 import { useProjectPageContext } from "./ProjectPage";
-
-type FileSortKey = "name" | "modified_desc" | "modified_asc" | "size_desc" | "size_asc" | "type";
 
 function nodePath(node: FileNode): string {
   return node.relative_path || (node.path === "." ? "" : node.path);
@@ -26,6 +25,7 @@ export function ProjectFilesPage() {
   const [query, setQuery] = useState("");
   const [selectedExtension, setSelectedExtension] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<FileSortKey>("name");
+  const [searchVisibleCount, setSearchVisibleCount] = useState(50);
   const [newFolderName, setNewFolderName] = useState("");
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -35,36 +35,25 @@ export function ProjectFilesPage() {
     setQuery("");
     setSelectedExtension(null);
     setSortKey("name");
+    setSearchVisibleCount(50);
     setOperationMessage(null);
   }, [project.projectName]);
 
-  const root = files?.file_tree ?? null;
-  const currentFolder = root ? findFolder(root, selectedFolder) ?? root : null;
-  const folderOptions = useMemo(() => (root ? collectFolders(root) : []), [root]);
-  const visibleChildren = useMemo(() => {
-    if (!currentFolder) {
-      return [];
-    }
-    return sortNodes(
-      currentFolder.children.filter((child) => {
-        if (child.kind === "folder") {
-          return query.trim() === "";
-        }
-        return fileNodeMatches(child, query, selectedExtension);
-      }),
-      sortKey,
-    );
-  }, [currentFolder, query, selectedExtension, sortKey]);
+  useEffect(() => {
+    setSearchVisibleCount(50);
+  }, [project.projectName, query, selectedExtension, sortKey]);
 
-  const searchResults = useMemo(() => {
-    if (!root || !query.trim()) {
-      return [];
-    }
-    return sortFiles(
-      flattenFileTree(root).filter((file) => fileMatches(file, query, selectedExtension)),
-      sortKey,
-    );
-  }, [query, root, selectedExtension, sortKey]);
+  const root = files?.file_tree ?? null;
+  const currentFolder = useMemo(() => (root ? getFolderNode(root, selectedFolder) ?? root : null), [root, selectedFolder]);
+  const folderOptions = useMemo(() => (root ? collectFolders(root) : []), [root]);
+  const visibleChildren = useMemo(
+    () => getVisibleFolderChildren(currentFolder, selectedExtension, sortKey),
+    [currentFolder, selectedExtension, sortKey],
+  );
+  const searchResults = useMemo(
+    () => buildSearchResults(root, query, selectedExtension, sortKey, searchVisibleCount),
+    [root, query, selectedExtension, sortKey, searchVisibleCount],
+  );
 
   async function refreshAll() {
     reload();
@@ -136,7 +125,7 @@ export function ProjectFilesPage() {
     );
   }
 
-  if (!files || !root) {
+  if (!files || !root || !currentFolder) {
     return (
       <ErrorState
         title="Kunne ikke laste filstrukturen"
@@ -149,6 +138,10 @@ export function ProjectFilesPage() {
       />
     );
   }
+
+  const searchQuery = query.trim();
+  const folderTitle = selectedFolder ? selectedFolder.split("/").pop() || "Rot" : "Rot";
+  const searchHasMore = searchResults.total > searchResults.items.length;
 
   return (
     <div className="section-stack">
@@ -171,6 +164,10 @@ export function ProjectFilesPage() {
           <div className="detail-card">
             <span>Status</span>
             <StatusPill status={project.status.level} />
+          </div>
+          <div className="detail-card">
+            <span>Gjeldende mappe</span>
+            <strong>{folderTitle}</strong>
           </div>
         </div>
 
@@ -223,13 +220,39 @@ export function ProjectFilesPage() {
         </div>
 
         <div className="file-browser">
-          <aside className="folder-tree-panel" aria-label="Mapper">
-            <FolderTree node={root} selectedPath={selectedFolder} onSelect={setSelectedFolder} />
-          </aside>
-          <main className="folder-content-panel">
+          <div className="folder-content-panel">
+            <div className="file-results-head">
+              <div>
+                <div className="section-kicker">{searchQuery ? "Søkeresultater" : "Mappevisning"}</div>
+                <h3 className="compact-title">{searchQuery ? "Alle treff i prosjektet" : selectedFolder ? selectedFolder : "Rot"}</h3>
+              </div>
+              <div className="section-head__note">
+                {searchQuery ? `${searchResults.total.toLocaleString("nb-NO")} treff` : `${visibleChildren.length.toLocaleString("nb-NO")} direkte elementer`}
+              </div>
+            </div>
+
             <FolderBreadcrumb selectedPath={selectedFolder} onSelect={setSelectedFolder} />
-            {query.trim() ? (
-              <SearchResultTable files={searchResults} />
+
+            {searchQuery ? (
+              <div className="section-stack">
+                {searchResults.total > 0 ? (
+                  <>
+                    <SearchResultTable files={searchResults.items} />
+                    {searchHasMore ? (
+                      <div className="file-results-head">
+                        <div className="section-head__note">
+                          Viser {searchResults.items.length.toLocaleString("nb-NO")} av {searchResults.total.toLocaleString("nb-NO")} treff
+                        </div>
+                        <button type="button" className="button button--secondary" onClick={() => setSearchVisibleCount((value) => value + 50)}>
+                          Vis flere treff
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <EmptyState title="Ingen treff" description="Ingen filer matcher søket akkurat nå." />
+                )}
+              </div>
             ) : visibleChildren.length > 0 ? (
               <div className="file-list" role="list">
                 {visibleChildren.map((child) =>
@@ -243,7 +266,7 @@ export function ProjectFilesPage() {
             ) : (
               <EmptyState title="Tom mappe" description="Denne mappen har ingen synlige filer eller undermapper." />
             )}
-          </main>
+          </div>
         </div>
 
         <div className="file-folder-select">
@@ -263,42 +286,18 @@ export function ProjectFilesPage() {
   );
 }
 
-function FolderTree({ node, selectedPath, onSelect, depth = 0 }: { node: FileNode; selectedPath: string; onSelect: (path: string) => void; depth?: number }) {
-  const path = nodePath(node);
-  const childFolders = node.children.filter((child) => child.kind === "folder");
-  return (
-    <div className="folder-tree-node">
-      <button
-        type="button"
-        className={`folder-tree-button ${selectedPath === path ? "folder-tree-button--active" : ""}`}
-        style={{ paddingLeft: `${depth * 0.85 + 0.65}rem` }}
-        onClick={() => onSelect(path)}
-      >
-        <span className="file-tree__icon file-tree__icon--folder" aria-hidden="true" />
-        <span>{node.display_name || node.name}</span>
-      </button>
-      {childFolders.map((child) => (
-        <FolderTree key={nodePath(child)} node={child} selectedPath={selectedPath} onSelect={onSelect} depth={depth + 1} />
-      ))}
-    </div>
-  );
-}
-
 function FolderBreadcrumb({ selectedPath, onSelect }: { selectedPath: string; onSelect: (path: string) => void }) {
-  const parts = selectedPath ? selectedPath.split("/") : [];
+  const parts = buildBreadcrumbs(selectedPath);
   return (
     <div className="folder-breadcrumbs">
       <button type="button" onClick={() => onSelect("")}>
         Rot
       </button>
-      {parts.map((part, index) => {
-        const path = parts.slice(0, index + 1).join("/");
-        return (
-          <button key={path} type="button" onClick={() => onSelect(path)}>
-            {part}
-          </button>
-        );
-      })}
+      {parts.map((part) => (
+        <button key={part.path} type="button" onClick={() => onSelect(part.path)}>
+          {part.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -390,22 +389,6 @@ function FileTypeIcon({ extension }: { extension: string | null | undefined }) {
   return <span className={`file-type-icon file-type-icon--${label.toLowerCase()}`}>{label}</span>;
 }
 
-function findFolder(node: FileNode, path: string): FileNode | null {
-  if (node.kind !== "folder") {
-    return null;
-  }
-  if (nodePath(node) === path) {
-    return node;
-  }
-  for (const child of node.children) {
-    const match = findFolder(child, path);
-    if (match) {
-      return match;
-    }
-  }
-  return null;
-}
-
 function collectFolders(node: FileNode): Array<{ path: string; label: string }> {
   if (node.kind !== "folder") {
     return [];
@@ -415,64 +398,4 @@ function collectFolders(node: FileNode): Array<{ path: string; label: string }> 
     { path, label: path || "Rot" },
     ...node.children.filter((child) => child.kind === "folder").flatMap((child) => collectFolders(child)),
   ];
-}
-
-function fileNodeMatches(node: FileNode, query: string, extension: string | null): boolean {
-  if (node.kind !== "file") {
-    return false;
-  }
-  if (extension !== null && node.extension !== extension) {
-    return false;
-  }
-  const needle = query.trim().toLowerCase();
-  return !needle || `${node.name} ${node.path}`.toLowerCase().includes(needle);
-}
-
-function fileMatches(file: FlatFileRecord, query: string, extension: string | null): boolean {
-  if (extension !== null && file.extension !== extension) {
-    return false;
-  }
-  const needle = query.trim().toLowerCase();
-  return !needle || `${file.displayName} ${file.path}`.toLowerCase().includes(needle);
-}
-
-function sortNodes(nodes: FileNode[], sortKey: FileSortKey): FileNode[] {
-  return [...nodes].sort((left, right) => {
-    if (left.kind !== right.kind) {
-      return left.kind === "folder" ? -1 : 1;
-    }
-    if (sortKey === "type") {
-      return displayExtension(left.extension).localeCompare(displayExtension(right.extension), "nb") || left.name.localeCompare(right.name, "nb");
-    }
-    if (sortKey === "size_desc" || sortKey === "size_asc") {
-      const diff = (right.size_bytes ?? 0) - (left.size_bytes ?? 0);
-      return sortKey === "size_desc" ? diff : -diff;
-    }
-    if (sortKey === "modified_desc" || sortKey === "modified_asc") {
-      const leftTime = left.modified_at ? Date.parse(left.modified_at) : 0;
-      const rightTime = right.modified_at ? Date.parse(right.modified_at) : 0;
-      const diff = rightTime - leftTime;
-      return sortKey === "modified_desc" ? diff : -diff;
-    }
-    return left.name.localeCompare(right.name, "nb");
-  });
-}
-
-function sortFiles(files: FlatFileRecord[], sortKey: FileSortKey): FlatFileRecord[] {
-  return [...files].sort((left, right) => {
-    if (sortKey === "type") {
-      return displayExtension(left.extension).localeCompare(displayExtension(right.extension), "nb") || left.displayName.localeCompare(right.displayName, "nb");
-    }
-    if (sortKey === "size_desc" || sortKey === "size_asc") {
-      const diff = (right.sizeBytes ?? 0) - (left.sizeBytes ?? 0);
-      return sortKey === "size_desc" ? diff : -diff;
-    }
-    if (sortKey === "modified_desc" || sortKey === "modified_asc") {
-      const leftTime = left.modifiedAt ? Date.parse(left.modifiedAt) : 0;
-      const rightTime = right.modifiedAt ? Date.parse(right.modifiedAt) : 0;
-      const diff = rightTime - leftTime;
-      return sortKey === "modified_desc" ? diff : -diff;
-    }
-    return left.displayName.localeCompare(right.displayName, "nb");
-  });
 }

@@ -1004,7 +1004,7 @@ code {
 
 .file-browser {
   display: grid;
-  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 420px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -1013,10 +1013,7 @@ code {
 }
 
 .folder-tree-panel {
-  min-width: 0;
-  overflow: auto;
-  border-right: 1px solid var(--border);
-  background: var(--surface-alt);
+  display: none;
 }
 
 .folder-content-panel {

@@ -17,7 +17,7 @@ import type {
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 20_000;
 
 function joinPath(base: string, path: string): string {
   const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
@@ -38,6 +38,13 @@ async function readJsonError(response: Response): Promise<string> {
     // fall through to generic message
   }
   return `${response.status} ${response.statusText}`;
+}
+
+function logApiFailure(method: string, path: string, error: unknown): void {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+  console.error(`[API] ${method} ${joinPath(API_BASE, path)} failed`, error);
 }
 
 export class ApiRequestError extends Error {
@@ -62,14 +69,19 @@ async function fetchJson<T>(path: string): Promise<T> {
     });
 
     if (!response.ok) {
-      throw new ApiRequestError(response.status, await readJsonError(response));
+      const error = new ApiRequestError(response.status, await readJsonError(response));
+      logApiFailure("GET", path, error);
+      throw error;
     }
 
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+      const timeoutError = new ApiRequestError(408, "API-kallet tok for lang tid.");
+      logApiFailure("GET", path, timeoutError);
+      throw timeoutError;
     }
+    logApiFailure("GET", path, error);
     throw error;
   } finally {
     globalThis.clearTimeout(timeoutId);
@@ -91,14 +103,19 @@ async function sendJson<T>(path: string, payload?: unknown): Promise<T> {
     });
 
     if (!response.ok) {
-      throw new ApiRequestError(response.status, await readJsonError(response));
+      const error = new ApiRequestError(response.status, await readJsonError(response));
+      logApiFailure("POST", path, error);
+      throw error;
     }
 
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+      const timeoutError = new ApiRequestError(408, "API-kallet tok for lang tid.");
+      logApiFailure("POST", path, timeoutError);
+      throw timeoutError;
     }
+    logApiFailure("POST", path, error);
     throw error;
   } finally {
     globalThis.clearTimeout(timeoutId);
@@ -118,14 +135,19 @@ async function deleteJson<T>(path: string): Promise<T> {
     });
 
     if (!response.ok) {
-      throw new ApiRequestError(response.status, await readJsonError(response));
+      const error = new ApiRequestError(response.status, await readJsonError(response));
+      logApiFailure("DELETE", path, error);
+      throw error;
     }
 
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+      const timeoutError = new ApiRequestError(408, "API-kallet tok for lang tid.");
+      logApiFailure("DELETE", path, timeoutError);
+      throw timeoutError;
     }
+    logApiFailure("DELETE", path, error);
     throw error;
   } finally {
     globalThis.clearTimeout(timeoutId);
@@ -146,14 +168,19 @@ async function sendForm<T>(path: string, formData: FormData): Promise<T> {
     });
 
     if (!response.ok) {
-      throw new ApiRequestError(response.status, await readJsonError(response));
+      const error = new ApiRequestError(response.status, await readJsonError(response));
+      logApiFailure("POST", path, error);
+      throw error;
     }
 
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new ApiRequestError(408, "API-kallet tok for lang tid.");
+      const timeoutError = new ApiRequestError(408, "API-kallet tok for lang tid.");
+      logApiFailure("POST", path, timeoutError);
+      throw timeoutError;
     }
+    logApiFailure("POST", path, error);
     throw error;
   } finally {
     globalThis.clearTimeout(timeoutId);
