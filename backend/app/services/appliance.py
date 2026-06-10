@@ -406,6 +406,8 @@ class SourceFileRecord:
     folder_category: str
     size_bytes: int
     modified_at: datetime
+    remote_item_id: str | None = None
+    remote_parent_id: str | None = None
 
     @property
     def extension(self) -> str:
@@ -911,14 +913,104 @@ class ApplianceService:
 
         try:
             resolved_file = matching_file.absolute_path.expanduser().resolve(strict=True)
-        except Exception as exc:
-            raise ProjectFileNotFoundError(f"File is not available in local cache: {relative_path}") from exc
+        except Exception:
+            resolved_file = self._download_project_file_to_temporary_cache(record, matching_file, normalized_path)
 
-        allowed_roots = self._allowed_file_roots(record)
+        allowed_roots = self._allowed_file_roots(record) + [self._temporary_file_cache_root()]
         if not allowed_roots or not any(resolved_file.is_relative_to(root) for root in allowed_roots):
             raise ProjectFileNotFoundError(f"File not found: {relative_path}")
 
         return resolved_file, Path(normalized_path).name
+
+    def _temporary_file_cache_root(self) -> Path:
+        return self.settings.resolved_appliance_root() / ".riveanbud_runtime" / "urn-nexus-temp-files"
+
+    def _cleanup_temporary_file_cache(self, *, ttl_seconds: int = 1800) -> None:
+        from time import time
+
+        root = self._temporary_file_cache_root()
+        if not root.exists():
+            return
+
+        cutoff = time() - ttl_seconds
+        for candidate in root.rglob("*"):
+            try:
+                if candidate.is_file() and candidate.stat().st_mtime < cutoff:
+                    candidate.unlink(missing_ok=True)
+            except Exception:
+                logger.warning("Unable to remove expired temporary Nexus file: %s", candidate)
+
+        for folder in sorted((item for item in root.rglob("*") if item.is_dir()), key=lambda item: len(item.parts), reverse=True):
+            try:
+                folder.rmdir()
+            except OSError:
+                pass
+
+    def _download_project_file_to_temporary_cache(self, record: ProjectRecord, file_record: SourceFileRecord, normalized_path: str) -> Path:
+        remote_item_id = (file_record.remote_item_id or "").strip()
+        if not remote_item_id:
+            raise ProjectFileNotFoundError(f"File is not available in local cache and has no OneDrive item id: {normalized_path}")
+
+        self._cleanup_temporary_file_cache()
+
+        cache_root = self._temporary_file_cache_root()
+        safe_project = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in record.project_name)
+        target = (cache_root / safe_project / normalized_path).expanduser().resolve(strict=False)
+
+        cache_root_resolved = cache_root.expanduser().resolve(strict=False)
+        if not target.is_relative_to(cache_root_resolved):
+            raise ProjectFileNotFoundError(f"Invalid temporary cache path: {normalized_path}")
+
+        if target.exists():
+            return target.resolve(strict=True)
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        env = self._graph_write_env()
+        missing = _missing_graph_write_env(env)
+        if missing:
+            raise ProjectFileNotFoundError("Microsoft Graph is not configured for file download. Missing: " + ", ".join(missing))
+
+        appliance_root = self.settings.resolved_appliance_root()
+        previous_env: dict[str, str | None] = {key: os.environ.get(key) for key in env}
+        os.environ.update(env)
+
+        try:
+            if str(appliance_root) not in sys.path:
+                sys.path.insert(0, str(appliance_root))
+
+            from app.integrations.onedrive.client import OneDriveClient, OneDriveClientError, _load_requests_module
+
+            client = OneDriveClient.from_env(env=env)
+            requests = _load_requests_module()
+            access_token = client.get_access_token()
+            download_url = f"https://graph.microsoft.com/v1.0/users/{client.config.onedrive_user}/drive/items/{remote_item_id}/content"
+
+            response = requests.get(
+                download_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=180,
+                stream=True,
+            )
+            response.raise_for_status()
+
+            temporary_target = target.with_suffix(target.suffix + ".download")
+            with temporary_target.open("wb") as fh:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        fh.write(chunk)
+            temporary_target.replace(target)
+            return target.resolve(strict=True)
+        except Exception as exc:
+            target.unlink(missing_ok=True)
+            raise ProjectFileNotFoundError(f"Could not download file from OneDrive: {normalized_path}") from exc
+        finally:
+            for key, value in previous_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
 
     def list_files(self, project_name: str) -> ProjectFilesResponse:
         record = self._get_project_record(project_name, load_reports=False)
@@ -2426,6 +2518,8 @@ class ApplianceService:
                     folder_category=_project_folder_category(relative_path),
                     size_bytes=size_bytes,
                     modified_at=modified_at,
+                    remote_item_id=str(item.get("remote_item_id") or "").strip() or None,
+                    remote_parent_id=str(item.get("remote_parent_id") or "").strip() or None,
                 )
             )
 

@@ -15,7 +15,7 @@ export function ProjectOverviewPage() {
       <section className="surface surface--padded">
         <div className="section-head">
           <div>
-            <div className="section-kicker">Oversikt</div>
+            <div className="section-kicker"> </div>
             <h2 className="section-title">Prosjektdetaljer</h2>
           </div>
         </div>

@@ -17,13 +17,13 @@ const ANALYSIS_EMAIL_MODES: Array<{
 }> = [
   {
     mode: "daily_digest",
-    label: "Legg resultat i daglig digest",
-    description: "Samler resultatet i dagens digest for senere utsendelse.",
+    label: "Legg resultat i daglig digest (kl. 05:50)",
+    description: " ",
   },
   {
     mode: "immediate",
     label: "Send e-post når rapportene er ferdige",
-    description: "Sender e-post så snart analysen har generert rapportene.",
+    description: " ",
   },
 ];
 
@@ -150,7 +150,7 @@ export function AnalysisPage() {
       <div className="page-stack">
         <AppHeader
           title="Analyse"
-          description="Kjør full analyse og rapportgenerering for prosjektene som er synlige i portalen."
+          description=""
         />
         <section className="surface surface--padded">
           <div className="loading-copy">Laster prosjekter ...</div>
@@ -182,7 +182,7 @@ export function AnalysisPage() {
     <div className="page-stack">
       <AppHeader
         title="Analyse"
-        description="Kjør full analyse og rapportgenerering for prosjektene som er synlige i portalen."
+        description=" "
       />
 
       <section className="surface surface--padded">
@@ -228,7 +228,7 @@ export function AnalysisPage() {
       <section className="surface surface--padded">
         <div className="section-head">
           <div>
-            <div className="section-kicker">Prosjekter</div>
+            <div className="section-kicker"> </div>
             <h2 className="section-title">Velg prosjekt</h2>
           </div>
           <div className="section-head__note">
@@ -282,7 +282,7 @@ export function AnalysisRunDialog({
       <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="analysis-dialog-title">
         <div className="section-head">
           <div>
-            <div className="section-kicker">Analyse</div>
+            <div className="section-kicker"> </div>
             <h2 className="section-title" id="analysis-dialog-title">
               {title}
             </h2>

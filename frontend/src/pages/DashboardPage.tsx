@@ -10,7 +10,7 @@ import { StatusPill } from "../components/StatusPill";
 import { CopyLinkButton } from "../components/CopyLinkButton";
 import type { HealthResponse, SyncStatusResponse } from "../types";
 
-const SYNC_ONLY_DESCRIPTION = "Henter filer og rapportliste fra OneDrive. Genererer ikke rapport.";
+const SYNC_ONLY_DESCRIPTION = " ";
 
 export function resolveDashboardLastSyncedAt(syncStatus: SyncStatusResponse | null, health: HealthResponse | null): string | null {
   return syncStatus?.last_completed_at ?? health?.last_synced_at ?? null;
@@ -99,7 +99,7 @@ export function DashboardPage() {
     <div className="page-stack">
       <AppHeader
         title="Kontrollsenter"
-        description="Oversikt over OneDrive-synk, rapporter, prosjekter og systemstatus."
+        description=" "
         eyebrow={null}
       />
 
@@ -163,7 +163,7 @@ export function DashboardPage() {
       <section className="surface surface--padded">
         <div className="section-head">
           <div>
-            <div className="section-kicker">Rapporter</div>
+            <div className="section-kicker"> </div>
             <h2 className="section-title">Seneste rapporter</h2>
           </div>
           <div className="section-head__note">{projectsLoading ? "Laster …" : `${recentReports.length.toLocaleString("nb-NO")} nyeste`}</div>

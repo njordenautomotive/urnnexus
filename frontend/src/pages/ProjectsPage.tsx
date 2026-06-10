@@ -90,7 +90,7 @@ export function ProjectsPage() {
     <div className="page-stack">
       <AppHeader
         title="Prosjekter"
-        description="Ryddig liste over OneDrive-prosjekter. Standardvisningen skjuler sample-prosjekter og lokale cache-prosjekter."
+        description=" "
       />
 
       {toastMessage ? <ProjectToast message={toastMessage} /> : null}
@@ -98,11 +98,11 @@ export function ProjectsPage() {
       <section className="surface surface--padded">
         <div className="section-head">
           <div>
-            <div className="section-kicker">Liste</div>
+            <div className="section-kicker"> </div>
             <h2 className="section-title">{projects.length.toLocaleString("nb-NO")} prosjekter</h2>
           </div>
           <div className="section-head__actions">
-            <div className="section-head__note">{projectsLoading ? "Laster …" : "Navn, filer, synk, kommentardokument, status og handlinger."}</div>
+            <div className="section-head__note">{projectsLoading ? "Laster …" : " "}</div>
             <button
               type="button"
               className="button"
@@ -133,7 +133,7 @@ export function ProjectsPage() {
           <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
             <div className="section-head">
               <div>
-                <div className="section-kicker">Prosjekt</div>
+                <div className="section-kicker"> </div>
                 <h2 className="section-title" id="create-project-title">
                   Nytt prosjekt
                 </h2>

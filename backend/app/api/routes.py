@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse
@@ -196,6 +197,16 @@ def get_files(project_name: str, service: ApplianceService = Depends(get_service
     return service.list_files(project_name)
 
 
+LOCAL_DESKTOP_FILE_SUFFIXES = {".ifc", ".dwg", ".rvt", ".nwd", ".nwc", ".smc"}
+
+
+def _open_content_disposition(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix in LOCAL_DESKTOP_FILE_SUFFIXES:
+        return "attachment"
+    return "inline"
+
+
 @router.get("/projects/{project_name}/files/open")
 def open_file(
     project_name: str,
@@ -203,7 +214,12 @@ def open_file(
     service: ApplianceService = Depends(get_service),
 ) -> FileResponse:
     file_path, filename = service.resolve_project_file(project_name, path)
-    return FileResponse(file_path, filename=filename, media_type=_file_media_type(filename), content_disposition_type="inline")
+    return FileResponse(
+        file_path,
+        filename=filename,
+        media_type=_file_media_type(filename),
+        content_disposition_type=_open_content_disposition(filename),
+    )
 
 
 @router.get("/projects/{project_name}/files/download")

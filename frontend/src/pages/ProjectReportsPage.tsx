@@ -52,7 +52,7 @@ export function ProjectReportsPage() {
       <section className="surface surface--padded">
         <div className="section-head">
           <div>
-            <div className="section-kicker">Rapporter</div>
+            <div className="section-kicker"> </div>
             <h2 className="section-title">Rapporthistorikk</h2>
           </div>
           <div className="section-head__note">

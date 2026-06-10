@@ -14,7 +14,7 @@ export function HealthPage() {
 
   return (
     <div className="page-stack">
-      <AppHeader title="Helse" description="Driftstilstand for cache, integrasjoner, synk, rapporter og portal." />
+      <AppHeader title="Helse" description=" " />
 
       {healthLoading ? (
         <section className="surface surface--padded">

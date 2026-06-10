@@ -148,7 +148,7 @@ export function ProjectFilesPage() {
       <section className="surface surface--padded">
         <div className="section-head">
           <div>
-            <div className="section-kicker">Filer</div>
+            <div className="section-kicker"> </div>
             <h2 className="section-title">Filutforsker for {project.displayName}</h2>
           </div>
           <div className="section-head__note">
@@ -312,6 +312,25 @@ function FolderRow({ folder, onOpen }: { folder: FileNode; onOpen: () => void })
   );
 }
 
+function OpenFileButton({ href }: { href: string }) {
+  const [isOpening, setIsOpening] = useState(false);
+
+  return (
+    <button
+      type="button"
+      className="button button--subtle"
+      disabled={isOpening}
+      onClick={() => {
+        setIsOpening(true);
+        window.open(href, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => setIsOpening(false), 4000);
+      }}
+    >
+      {isOpening ? "Laster ned fil..." : "Åpne"}
+    </button>
+  );
+}
+
 function FileRow({ file }: { file: FileNode }) {
   return (
     <div className="file-browser-row file-browser-row--file">
@@ -321,11 +340,7 @@ function FileRow({ file }: { file: FileNode }) {
         {formatBytes(file.size_bytes)} · {file.modified_at ? formatDateTime(file.modified_at) : "Ukjent dato"}
       </span>
       <span className="file-browser-row__actions">
-        {file.open_url ? (
-          <a className="button button--subtle" href={file.open_url} target="_blank" rel="noreferrer">
-            Åpne
-          </a>
-        ) : null}
+        {file.open_url ? <OpenFileButton href={file.open_url} /> : null}
         {file.download_url ? (
           <a className="button button--subtle" href={file.download_url}>
             Last ned
@@ -364,11 +379,7 @@ function SearchResultTable({ files }: { files: FlatFileRecord[] }) {
               <td>{file.modifiedAt ? formatDateTime(file.modifiedAt) : "—"}</td>
               <td>
                 <div className="table-actions">
-                  {file.openUrl ? (
-                    <a className="button button--subtle" href={file.openUrl} target="_blank" rel="noreferrer">
-                      Åpne
-                    </a>
-                  ) : null}
+                  {file.openUrl ? <OpenFileButton href={file.openUrl} /> : null}
                   {file.downloadUrl ? (
                     <a className="button button--subtle" href={file.downloadUrl}>
                       Last ned
