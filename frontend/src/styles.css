@@ -1727,3 +1727,45 @@ code {
     background: rgba(0, 0, 0, 0.46);
   }
 }
+
+.analysis-button-danger {
+  background: #b71c1c;
+  color: #ffffff;
+  border-color: #b71c1c;
+}
+
+.analysis-button-danger:hover,
+.analysis-button-danger:focus-visible {
+  background: #8e0000;
+  color: #ffffff;
+  border-color: #8e0000;
+}
+
+.analysis-button-danger:disabled,
+.analysis-button-danger:disabled:hover,
+.analysis-button-danger:disabled:focus-visible {
+  background: #7a2b2b;
+  color: #111111;
+  border-color: #7a2b2b;
+}
+
+.button.analysis-button-danger {
+  background: #b71c1c;
+  color: #ffffff;
+  border-color: #b71c1c;
+}
+
+.button.analysis-button-danger:hover,
+.button.analysis-button-danger:focus-visible {
+  background: #8e0000;
+  color: #ffffff;
+  border-color: #8e0000;
+}
+
+.button.analysis-button-danger:disabled,
+.button.analysis-button-danger:disabled:hover,
+.button.analysis-button-danger:disabled:focus-visible {
+  background: #5f2121;
+  color: #d0d0d0;
+  border-color: #5f2121;
+}

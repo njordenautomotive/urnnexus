@@ -87,14 +87,14 @@ function ProjectTableRow({
       <td>{formatActivity(project)}</td>
       <td>
         <div className="project-table__actions">
-          <Link className="button button--primary" to={project.projectHref}>
-            Åpne prosjekt
-          </Link>
           {onAnalyzeProject ? (
-            <button type="button" className="button button--secondary" onClick={() => onAnalyzeProject(project)}>
+            <button type="button" className="button analysis-button-danger" onClick={() => onAnalyzeProject(project)}>
               Analyser
             </button>
           ) : null}
+          <Link className="button button--primary" to={project.projectHref}>
+            Åpne prosjekt
+          </Link>
           {onDeleteProject ? (
             <button type="button" className="button button--secondary" onClick={() => onDeleteProject(project)}>
               Slett prosjekt

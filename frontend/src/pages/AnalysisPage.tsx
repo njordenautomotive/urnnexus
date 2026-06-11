@@ -194,7 +194,7 @@ export function AnalysisPage() {
           <div className="section-head__actions">
             <button
               type="button"
-              className="button"
+              className="button analysis-button-danger"
               onClick={() => setAnalysisTarget(null)}
               disabled={Boolean(analysisDisabledReason) || visibleProjects.length === 0}
               title={analysisDisabledReason ?? "Start analyse for alle prosjekter"}
