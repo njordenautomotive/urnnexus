@@ -139,6 +139,11 @@ describe("ProjectFilesPage", () => {
     expect(markup).toContain("rot.docx");
     expect(markup).not.toContain("dyp.docx");
     expect(markup).not.toContain("folder-tree-panel");
+    expect(markup).not.toContain("Sti");
+    expect(markup).not.toContain("Status");
+    expect(markup).not.toContain("Gjeldende mappe");
+    expect(markup).not.toContain("detail-grid--compact");
+    expect((markup.match(/detail-card/g) ?? []).length).toBe(0);
     expect((markup.match(/file-browser-row--file/g) ?? []).length).toBe(1);
   });
 });

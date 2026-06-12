@@ -1,5 +1,4 @@
 import { ProjectIssuesPanel } from "../components/ProjectIssuesPanel";
-import { StatusPill } from "../components/StatusPill";
 import { formatDateTime } from "../lib/api";
 import { useProjectPageContext } from "./ProjectPage";
 
@@ -8,7 +7,7 @@ function infoValue(value: string | null | undefined): string {
 }
 
 export function ProjectOverviewPage() {
-  const { project, projectDetail } = useProjectPageContext();
+  const { project } = useProjectPageContext();
 
   return (
     <div className="section-stack">
@@ -34,10 +33,6 @@ export function ProjectOverviewPage() {
             <strong>{project.breadcrumbPath}</strong>
           </div>
           <div className="detail-card">
-            <span>Status</span>
-            <StatusPill status={project.status.level} />
-          </div>
-          <div className="detail-card">
             <span>Filer</span>
             <strong>{project.fileCountLabel}</strong>
           </div>
@@ -60,14 +55,6 @@ export function ProjectOverviewPage() {
           <div className="detail-card">
             <span>Sist analysert</span>
             <strong>{project.lastAnalyzedAt ? formatDateTime(project.lastAnalyzedAt) : "—"}</strong>
-          </div>
-          <div className="detail-card">
-            <span>Analysegrunnlag</span>
-            <strong>
-              {projectDetail.analysis?.documents_seen !== null && projectDetail.analysis?.documents_seen !== undefined
-                ? `${projectDetail.analysis.documents_seen.toLocaleString("nb-NO")} dokumenter`
-                : "—"}
-            </strong>
           </div>
         </div>
 

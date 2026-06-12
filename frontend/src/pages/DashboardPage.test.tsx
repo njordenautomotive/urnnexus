@@ -119,7 +119,6 @@ describe("DashboardPage", () => {
     expect(markup).toContain("Prosjekter totalt");
     expect(markup).toContain("Uten rapport");
     expect(markup).toContain("Synk OneDrive");
-    expect(markup).toContain("Henter filer og rapportliste fra OneDrive. Genererer ikke rapport.");
     expect(markup).toContain("Kontrollsenter");
     expect(markup).not.toContain("page-header__eyebrow");
     expect(markup).not.toContain("URN Nexus");

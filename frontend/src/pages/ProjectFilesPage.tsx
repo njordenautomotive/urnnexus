@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
-import { StatusPill } from "../components/StatusPill";
 import { createProjectFolder, formatBytes, formatDateTime, getProjectFiles, uploadProjectFile } from "../lib/api";
 import { buildBreadcrumbs, buildSearchResults, getFolderNode, getVisibleFolderChildren, type FileSortKey } from "../lib/fileBrowser";
 import type { FlatFileRecord } from "../lib/fileTree";
@@ -140,7 +139,6 @@ export function ProjectFilesPage() {
   }
 
   const searchQuery = query.trim();
-  const folderTitle = selectedFolder ? selectedFolder.split("/").pop() || "Rot" : "Rot";
   const searchHasMore = searchResults.total > searchResults.items.length;
 
   return (
@@ -153,21 +151,6 @@ export function ProjectFilesPage() {
           </div>
           <div className="section-head__note">
             {project.fileCount.toLocaleString("nb-NO")} filer · {project.lastSyncedAt ? `synket ${formatDateTime(project.lastSyncedAt)}` : "synket ukjent"}
-          </div>
-        </div>
-
-        <div className="detail-grid detail-grid--compact">
-          <div className="detail-card">
-            <span>Sti</span>
-            <strong>{project.breadcrumbPath}</strong>
-          </div>
-          <div className="detail-card">
-            <span>Status</span>
-            <StatusPill status={project.status.level} />
-          </div>
-          <div className="detail-card">
-            <span>Gjeldende mappe</span>
-            <strong>{folderTitle}</strong>
           </div>
         </div>
 

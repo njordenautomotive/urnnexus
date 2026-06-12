@@ -51,6 +51,7 @@ LIGHTWEIGHT_STATE_DB_FILENAME = "onedrive_lightweight_state.sqlite3"
 REPORT_SUFFIXES = {".docx", ".pdf"}
 OPENABLE_REPORT_SUFFIXES = {".docx", ".pdf"}
 COMMENT_ROOT_NAMES = {"kommentarer", "enterprise_review"}
+REPORT_ROOT_NAMES = {"kommentarer"}
 DISPLAY_PATH_PREFIX = "AnbudAppliance/"
 DEFAULT_PROJECT_FOLDERS = (
     "Anbud",
@@ -694,8 +695,9 @@ def _sort_comment_documents_key(report: ProjectReport) -> tuple[Any, ...]:
     generated_at = report.generated_at or datetime.min.replace(tzinfo=timezone.utc)
     version_key = _report_version_sort_key(report.version)
     return (
-        created_at,
+        1 if report.version else 0,
         version_key,
+        created_at,
         generated_at,
         report.report_name.casefold(),
     )
@@ -2047,6 +2049,185 @@ class ApplianceService:
                 return generated_at
         return None
 
+    def _history_generated_at(self, payload: Mapping[str, Any]) -> datetime | None:
+        snapshot = payload.get("report_snapshot")
+        if not isinstance(snapshot, Mapping):
+            snapshot = payload.get("analysis_snapshot")
+
+        timestamp_text = ""
+        if isinstance(snapshot, Mapping):
+            timestamp_text = str(
+                snapshot.get("generated_at")
+                or snapshot.get("finished_at")
+                or snapshot.get("created_at")
+                or ""
+            ).strip()
+        if not timestamp_text:
+            timestamp_text = str(payload.get("timestamp") or "").strip()
+        return _parse_datetime(timestamp_text)
+
+    def _history_report_file_path(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        uploaded_report: Mapping[str, Any] | None = None,
+    ) -> Path | None:
+        candidates: list[Path] = []
+        seen: set[str] = set()
+
+        def add_candidate(value: Any) -> None:
+            text = str(value or "").strip()
+            if not text:
+                return
+            candidate = Path(text).expanduser()
+            key = candidate.as_posix()
+            if key in seen:
+                return
+            seen.add(key)
+            candidates.append(candidate)
+
+        if uploaded_report is not None:
+            add_candidate(uploaded_report.get("local_path"))
+            add_candidate(uploaded_report.get("local_report_path"))
+
+        add_candidate(payload.get("output_docx_path"))
+        add_candidate(payload.get("local_report_path"))
+
+        output_dir_text = str(
+            (uploaded_report.get("local_output_path") if uploaded_report is not None else payload.get("local_output_path")) or ""
+        ).strip()
+        if output_dir_text:
+            output_dir = Path(output_dir_text).expanduser()
+            for source in (
+                uploaded_report.get("local_path") if uploaded_report is not None else None,
+                uploaded_report.get("local_report_path") if uploaded_report is not None else None,
+                payload.get("output_docx_path"),
+                payload.get("local_report_path"),
+            ):
+                name = Path(str(source or "").strip()).name
+                if name:
+                    add_candidate(output_dir / name)
+
+        for candidate in candidates:
+            try:
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+            except Exception:
+                continue
+
+        return candidates[0] if candidates else None
+
+    def _project_report_from_history_record(
+        self,
+        payload: Mapping[str, Any],
+        project_name: str,
+        *,
+        report_name: str,
+        report_path: Path | None,
+    ) -> ProjectReport | None:
+        del project_name
+
+        generated_at = self._history_generated_at(payload)
+        if generated_at is None:
+            return None
+
+        report_name = Path(report_name).name.strip()
+        if not report_name or not _is_comment_document_report_name(report_name):
+            return None
+
+        report_path = report_path.expanduser() if report_path is not None else Path(report_name)
+        report_type = report_path.suffix.lower().lstrip(".") or str(payload.get("report_type") or "").strip() or "unknown"
+        version = _report_version_label(report_name)
+
+        try:
+            stat_result = report_path.stat()
+            created_at = _file_created_at(stat_result)
+            modified_at = datetime.fromtimestamp(stat_result.st_mtime, tz=OSLO_TIMEZONE)
+            size_bytes = stat_result.st_size
+            openable = report_path.suffix.lower() in OPENABLE_REPORT_SUFFIXES
+        except Exception:
+            created_at = generated_at
+            modified_at = generated_at
+            size_bytes = 0
+            openable = False
+
+        return ProjectReport(
+            report_name=report_name,
+            report_path=report_path,
+            report_type=report_type,
+            version=version,
+            created_at=created_at,
+            generated_at=generated_at,
+            modified_at=modified_at,
+            size_bytes=size_bytes,
+            is_latest=False,
+            open_url="filesystem" if openable else "",
+            download_url="filesystem" if openable else "",
+        )
+
+    def _project_reports_from_history_entry(
+        self,
+        payload: Mapping[str, Any],
+        project_name: str,
+    ) -> list[ProjectReport]:
+        uploaded_reports = payload.get("uploaded_reports")
+        if isinstance(uploaded_reports, list) and uploaded_reports:
+            reports: list[ProjectReport] = []
+            for uploaded_report in uploaded_reports:
+                if not isinstance(uploaded_report, Mapping):
+                    continue
+                remote_path = str(uploaded_report.get("remote_path") or "").strip()
+                report_name_source = (
+                    remote_path
+                    or str(uploaded_report.get("local_path") or "").strip()
+                    or str(uploaded_report.get("local_report_path") or "").strip()
+                    or str(payload.get("output_docx_path") or "").strip()
+                    or str(payload.get("local_report_path") or "").strip()
+                )
+                if not report_name_source:
+                    continue
+
+                report = self._project_report_from_history_record(
+                    payload,
+                    project_name,
+                    report_name=report_name_source,
+                    report_path=self._history_report_file_path(payload, uploaded_report=uploaded_report),
+                )
+                if report is not None:
+                    reports.append(report)
+
+            return reports
+
+        return []
+
+    def _project_report_from_history_entry(
+        self,
+        payload: Mapping[str, Any],
+        project_name: str,
+    ) -> ProjectReport | None:
+        report_name_source = (
+            str(payload.get("local_report_path") or "").strip()
+            or str(payload.get("output_docx_path") or "").strip()
+        )
+        if not report_name_source:
+            snapshot = payload.get("report_snapshot")
+            if not isinstance(snapshot, Mapping):
+                snapshot = payload.get("analysis_snapshot")
+            if isinstance(snapshot, Mapping):
+                report_name_source = (
+                    str(snapshot.get("local_report_path") or "").strip()
+                    or str(snapshot.get("output_docx_path") or "").strip()
+                )
+        if not report_name_source:
+            return None
+
+        return self._project_report_from_history_record(
+            payload,
+            project_name,
+            report_name=report_name_source,
+            report_path=self._history_report_file_path(payload),
+        )
+
     def _history_report_candidates(
         self,
         project_name: str,
@@ -2058,7 +2239,8 @@ class ApplianceService:
             return []
 
         project_name_normalized = _normalize_name(project_name)
-        reports: list[ProjectReport] = []
+        uploaded_reports: list[ProjectReport] = []
+        fallback_reports: list[ProjectReport] = []
         seen_keys: set[str] = set()
 
         for history_path in self._report_history_paths():
@@ -2080,18 +2262,29 @@ class ApplianceService:
                 if not self._history_entry_matches_project(payload, project_name_normalized):
                     continue
 
-                report = self._project_report_from_history_entry(payload, project_name)
-                if report is None:
-                    continue
+                history_reports = self._project_reports_from_history_entry(payload, project_name)
+                if history_reports:
+                    target_reports = uploaded_reports
+                else:
+                    fallback_report = self._project_report_from_history_entry(payload, project_name)
+                    if fallback_report is None:
+                        continue
+                    target_reports = fallback_reports
+                    history_reports = [fallback_report]
 
-                key = f"{report.report_name.casefold()}|{report.created_at.isoformat()}|{report.report_path.as_posix().casefold()}"
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-                reports.append(report)
+                for report in history_reports:
+                    key = f"{report.report_name.casefold()}|{report.created_at.isoformat()}|{report.report_path.as_posix().casefold()}"
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    target_reports.append(report)
 
-        reports.sort(key=_sort_comment_documents_key, reverse=True)
-        return reports
+        if uploaded_reports:
+            uploaded_reports.sort(key=_sort_comment_documents_key, reverse=True)
+            return uploaded_reports
+
+        fallback_reports.sort(key=_sort_comment_documents_key, reverse=True)
+        return fallback_reports
 
     def _report_history_paths(self) -> list[Path]:
         candidates: list[Path] = []
@@ -2128,8 +2321,30 @@ class ApplianceService:
             normalized = _normalize_name(Path(text.replace("\\", "/")).name)
             if normalized == project_name_normalized:
                 return True
-            if _normalize_name(text).endswith(project_name_normalized):
+            normalized_text = _normalize_name(text)
+            if project_name_normalized in normalized_text:
                 return True
+
+        uploaded_reports = payload.get("uploaded_reports")
+        if isinstance(uploaded_reports, list):
+            for uploaded_report in uploaded_reports:
+                if not isinstance(uploaded_report, Mapping):
+                    continue
+                for value in (
+                    uploaded_report.get("remote_path"),
+                    uploaded_report.get("local_path"),
+                    uploaded_report.get("local_report_path"),
+                    uploaded_report.get("local_output_path"),
+                ):
+                    text = str(value or "").strip()
+                    if not text:
+                        continue
+                    normalized = _normalize_name(Path(text.replace("\\", "/")).name)
+                    if normalized == project_name_normalized:
+                        return True
+                    normalized_text = _normalize_name(text)
+                    if project_name_normalized in normalized_text:
+                        return True
 
         for key in ("report_snapshot", "analysis_snapshot"):
             snapshot = payload.get(key)
@@ -2139,51 +2354,6 @@ class ApplianceService:
             if snapshot_project and _normalize_name(snapshot_project) == project_name_normalized:
                 return True
         return False
-
-    def _project_report_from_history_entry(self, payload: Mapping[str, Any], project_name: str) -> ProjectReport | None:
-        del project_name
-        snapshot = payload.get("report_snapshot")
-        if not isinstance(snapshot, Mapping):
-            snapshot = payload.get("analysis_snapshot")
-        if not isinstance(snapshot, Mapping):
-            return None
-
-        generated_at = _parse_datetime(str(snapshot.get("generated_at") or payload.get("timestamp") or ""))
-        if generated_at is None:
-            return None
-
-        report_path_text = str(
-            payload.get("local_report_path")
-            or payload.get("output_docx_path")
-            or snapshot.get("local_report_path")
-            or snapshot.get("output_docx_path")
-            or ""
-        ).strip()
-        if not report_path_text:
-            return None
-
-        report_path = Path(report_path_text).expanduser()
-        report_name = report_path.name
-        if not _is_comment_document_report_name(report_name):
-            return None
-
-        report_type = report_path.suffix.lower().lstrip(".") or str(snapshot.get("report_type") or "").strip() or "unknown"
-        synthetic_report_path = Path(f"{report_path.as_posix()}#history#{generated_at.isoformat()}")
-        version = _report_version_label(report_name)
-
-        return ProjectReport(
-            report_name=report_name,
-            report_path=synthetic_report_path,
-            report_type=report_type,
-            version=version,
-            created_at=generated_at,
-            generated_at=generated_at,
-            modified_at=generated_at,
-            size_bytes=0,
-            is_latest=False,
-            open_url="",
-            download_url="",
-        )
 
     def _load_reports(
         self,
@@ -2247,37 +2417,25 @@ class ApplianceService:
             is_sample_project=is_sample_project,
         )
         for root in comment_roots:
+            if root.name.casefold() not in REPORT_ROOT_NAMES:
+                continue
             for comment_root in self._report_search_roots(root):
                 collect_from_root(comment_root)
 
-        output_relative_path = self._output_relative_path(relative_project_path)
-        if output_relative_path is not None:
-            outputs_root = self.settings.resolved_appliance_root() / "outputs" / output_relative_path
-            if outputs_root.exists() and outputs_root.is_dir():
-                collect_from_root(outputs_root)
-
-        if len(reports) <= 1:
+        if not reports:
             history_reports = self._history_report_candidates(
                 project_name,
                 relative_project_path=relative_project_path,
                 is_sample_project=is_sample_project,
             )
-            if history_reports:
-                current_report_names = {report.report_name.casefold() for report in reports}
-                skipped_history_indices: set[int] = set()
-                for report_name in current_report_names:
-                    for index, history_report in enumerate(history_reports):
-                        if index in skipped_history_indices:
-                            continue
-                        if history_report.report_name.casefold() == report_name:
-                            skipped_history_indices.add(index)
-                            break
+            reports.extend(history_reports)
 
-                reports.extend(
-                    history_report
-                    for index, history_report in enumerate(history_reports)
-                    if index not in skipped_history_indices
-                )
+        if not reports:
+            output_relative_path = self._output_relative_path(relative_project_path)
+            if output_relative_path is not None:
+                outputs_root = self.settings.resolved_appliance_root() / "outputs" / output_relative_path
+                if outputs_root.exists() and outputs_root.is_dir():
+                    collect_from_root(outputs_root)
 
         reports.sort(key=_sort_comment_documents_key, reverse=True)
         reports = [

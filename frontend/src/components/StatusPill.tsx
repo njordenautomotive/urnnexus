@@ -1,17 +1,21 @@
 import { projectStatusMeta, type ProjectStatusLevel, type StatusTone } from "../lib/projects";
 
-interface StatusPillProps {
+interface StatusBadgeProps {
   status: string;
   label?: string;
   tone?: StatusTone;
 }
 
-export function StatusPill({ status, label, tone }: StatusPillProps) {
+export function StatusPill({ status, label, tone }: StatusBadgeProps) {
+  return <StatusBadge status={status} label={label} tone={tone} />;
+}
+
+export function StatusBadge({ status, label, tone }: StatusBadgeProps) {
   const resolvedTone = tone ?? toneForStatus(status);
   return (
-    <span className={`status-pill status-pill--${resolvedTone}`}>
-      <span className="status-pill__dot" aria-hidden="true" />
-      <span className="status-pill__label">{label ?? humanizeStatus(status)}</span>
+    <span className={`status-badge status-badge--${resolvedTone}`}>
+      <span className="status-badge__dot" aria-hidden="true" />
+      <span className="status-badge__label">{label ?? humanizeStatus(status)}</span>
     </span>
   );
 }
@@ -57,7 +61,7 @@ function humanizeStatus(status: string): string {
   return status.replaceAll("_", " ");
 }
 
-function toneForStatus(status: string): StatusPillProps["tone"] {
+function toneForStatus(status: string): StatusBadgeProps["tone"] {
   if (isProjectStatusLevel(status)) {
     return projectStatusMeta(status).tone;
   }

@@ -4,6 +4,8 @@ import { useAppData } from "../context/AppDataContext";
 import { StatusPill } from "./StatusPill";
 
 export function AppLayout() {
+  const { dailySync, dismissDailySync } = useAppData();
+
   return (
     <div className="app-shell">
       <Sidebar />
@@ -12,6 +14,7 @@ export function AppLayout() {
           <Outlet />
         </div>
       </main>
+      {dailySync ? <DailySyncOverlay title={dailySync.title} message={dailySync.message} detail={dailySync.detail} onContinue={dismissDailySync ?? (() => undefined)} /> : null}
     </div>
   );
 }
@@ -106,5 +109,41 @@ export function ProjectHeader({
       </div>
       {actions ? <div className="project-header__actions">{actions}</div> : null}
     </section>
+  );
+}
+
+function DailySyncOverlay({
+  title,
+  message,
+  detail,
+  onContinue,
+}: {
+  title: string;
+  message: string;
+  detail: string | null;
+  onContinue: () => void;
+}) {
+  return (
+    <div className="modal-backdrop modal-backdrop--sync" role="presentation">
+      <section className="modal-panel modal-panel--sync" role="dialog" aria-modal="true" aria-labelledby="daily-sync-title" aria-describedby="daily-sync-description">
+        <div className="sync-loader" aria-hidden="true" />
+        <div className="section-kicker">OneDrive</div>
+        <h2 className="section-title" id="daily-sync-title">
+          {title}
+        </h2>
+        <p className="modal-copy" id="daily-sync-description">
+          {message}
+        </p>
+        {detail ? <div className="sync-loader__detail">{detail}</div> : null}
+        <div className="modal-panel__actions modal-panel__actions--sync">
+          <button type="button" className="button button--secondary" onClick={onContinue}>
+            Fortsett
+          </button>
+          <a className="button" href="/health" target="_blank" rel="noreferrer">
+            Se status
+          </a>
+        </div>
+      </section>
+    </div>
   );
 }

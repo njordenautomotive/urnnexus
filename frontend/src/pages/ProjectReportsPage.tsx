@@ -1,6 +1,5 @@
 import { ErrorState } from "../components/ErrorState";
 import { ReportTable } from "../components/ReportTable";
-import { StatusPill } from "../components/StatusPill";
 import { formatBytes, formatDateTime, getProjectReports } from "../lib/api";
 import { useResource } from "../lib/useResource";
 import { useProjectPageContext } from "./ProjectPage";
@@ -64,14 +63,6 @@ export function ProjectReportsPage() {
           <div className="detail-card">
             <span>Prosjekt</span>
             <strong>{project.displayName}</strong>
-          </div>
-          <div className="detail-card">
-            <span>Sti</span>
-            <strong>{project.breadcrumbPath}</strong>
-          </div>
-          <div className="detail-card">
-            <span>Status</span>
-            <StatusPill status={project.status.level} />
           </div>
           <div className="detail-card">
             <span>Siste rapport opprettet</span>

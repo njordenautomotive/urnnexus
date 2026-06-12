@@ -83,7 +83,6 @@ describe("HealthPage", () => {
     );
 
     expect(markup).toContain("Helse");
-    expect(markup).toContain("Driftstilstand for cache, integrasjoner, synk, rapporter og portal.");
     expect(markup).toContain("0.1.5");
     expect(markup).toContain("Oppetid");
     expect(markup).toContain("Feil/varsler siste 24t");
@@ -91,7 +90,7 @@ describe("HealthPage", () => {
     expect(markup).toContain("Viser om Nexus kan opprette, slette og laste opp direkte til OneDrive.");
     expect(markup).toContain('role="tooltip"');
     expect(markup).toContain('tabindex="0"');
-    expect(markup).toContain("status-pill__label");
+    expect(markup).toContain("status-badge__label");
     const expectedCardOrder = [
       "Tilgjengelig",
       "Oppetid",

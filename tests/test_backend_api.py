@@ -367,6 +367,9 @@ def _build_versioned_comment_appliance_root(
     *,
     project_name: str,
     versions: list[str],
+    history_versions: list[str] | None = None,
+    include_output_report: bool = False,
+    include_comment_base_report: bool = False,
 ) -> Path:
     appliance_root = tmp_path / "appliance"
     runtime_root = appliance_root / ".riveanbud_runtime" / "rive-anbud-appliance" / "Urban_Reuse_Norway"
@@ -400,6 +403,76 @@ def _build_versioned_comment_appliance_root(
             modified_at=base_time + timedelta(minutes=len(versions) - index),
         )
         time.sleep(0.01)
+
+    if include_comment_base_report:
+        _write_file(
+            comments_root / f"{project_name} - Kommentardokument.docx",
+            b"base-docx",
+            modified_at=base_time + timedelta(minutes=len(versions) + 20),
+        )
+
+    if include_output_report or history_versions:
+        output_generated_at = base_time + timedelta(minutes=len(versions) + 10)
+        outputs_root = appliance_root / "outputs" / "Urban_Reuse_Norway" / project_name / output_generated_at.strftime("%Y-%m-%d") / "enterprise_review"
+        outputs_root.mkdir(parents=True, exist_ok=True)
+        output_docx_path = outputs_root / f"{project_name} - Kommentardokument.docx"
+        _write_file(output_docx_path, b"output-docx", modified_at=output_generated_at)
+        (outputs_root / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "project_name": project_name,
+                    "status": "completed_with_warnings",
+                    "started_at": output_generated_at.isoformat(),
+                    "finished_at": (output_generated_at + timedelta(minutes=5)).isoformat(),
+                    "provider": "fake",
+                    "model": None,
+                    "documents_seen": len(versions),
+                    "chunks_created": len(versions),
+                    "report_items_count": len(versions),
+                    "output_docx_path": str(output_docx_path),
+                    "warnings": [],
+                    "errors": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    if history_versions:
+        history_path = runtime_root / "onedrive_sync_history.jsonl"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        history_entries: list[str] = []
+        for index, version in enumerate(history_versions):
+            generated_at = base_time + timedelta(days=index + 1)
+            output_docx_path = appliance_root / "outputs" / "Urban_Reuse_Norway" / project_name / generated_at.strftime("%Y-%m-%d") / "enterprise_review" / f"{project_name} - Kommentardokument.docx"
+            _write_file(output_docx_path, f"history-{version}".encode("utf-8"), modified_at=generated_at)
+            history_entries.append(
+                json.dumps(
+                    {
+                        "timestamp": generated_at.isoformat(),
+                        "duration_seconds": 3.0,
+                        "project_name": project_name,
+                        "remote_root_path": f"AnbudAppliance/Urban_Reuse_Norway/{project_name}",
+                        "local_output_mode": "history",
+                        "status": "completed_with_warnings",
+                        "report_snapshot": {
+                            "project_name": project_name,
+                            "report_type": "enterprise_review",
+                            "generated_at": generated_at.isoformat(),
+                        },
+                        "uploaded_reports": [
+                            {
+                                "local_path": str(output_docx_path),
+                                "local_output_path": str(output_docx_path.parent),
+                                "remote_path": f"AnbudAppliance/Urban_Reuse_Norway/{project_name}/Kommentarer/{project_name} - Kommentardokument - {version}.docx",
+                                "status": "uploaded",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        history_path.write_text("\n".join(history_entries), encoding="utf-8")
 
     state_db = runtime_root / "state" / "onedrive_lightweight_state.sqlite3"
     state_db.parent.mkdir(parents=True, exist_ok=True)
@@ -503,9 +576,9 @@ def test_projects_endpoint_lists_discovered_projects() -> None:
     assert bryn["hidden_internal_path"]
     assert bryn["status"]
     assert bryn["file_count"] == 395
-    assert bryn["report_count"] == 3
-    assert bryn["comment_document_count"] == 3
-    assert bryn["latest_comment_document"] == "Bryn Skole - Kommentardokument.docx"
+    assert bryn["report_count"] == 2
+    assert bryn["comment_document_count"] == 2
+    assert bryn["latest_comment_document"] == "Bryn Skole - Kommentardokument - 6.0.docx"
     assert bryn["latest_comment_document_open_url"] == "/api/projects/Bryn%20Skole/reports/latest/open"
 
 
@@ -562,15 +635,15 @@ def test_sample_project_detail_reports_and_files() -> None:
     ]
 
 
-def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
+def test_state_projects_discover_comment_documents_from_history_without_outputs_root_mixing() -> None:
     client = _client()
     for project_name, expected_file_count, expected_report_count, expected_latest, expected_children in [
-        ("Bryn Skole", 395, 3, "Bryn Skole - Kommentardokument.docx", ["OneDrive_1_21.5.2026 (1)"]),
+        ("Bryn Skole", 395, 2, "Bryn Skole - Kommentardokument - 6.0.docx", ["OneDrive_1_21.5.2026 (1)"]),
         (
             "TestProsjekt#1",
             4,
-            2,
-            "TestProsjekt#1 - Kommentardokument.docx",
+            4,
+            "TestProsjekt#1 - Kommentardokument - 6.0.docx",
             [
                 "Dette er et testdokument.docx",
                 "Hvis dette kan leses så er det ganske kult da.docx",
@@ -611,11 +684,33 @@ def test_state_projects_discover_comment_documents_from_outputs_root() -> None:
         assert reports["latest_comment_document"] == expected_latest
         assert reports["latest_comment_document_open_url"] == f"/api/projects/{project}/reports/latest/open"
         assert reports["comment_document_count"] == expected_report_count
-        assert [item["report_name"] for item in reports["reports"]] == [expected_latest] * expected_report_count
+        if project_name == "TestProsjekt#1":
+            assert [item["report_name"] for item in reports["reports"]] == [
+                "TestProsjekt#1 - Kommentardokument - 6.0.docx",
+                "TestProsjekt#1 - Kommentardokument - 5.0.docx",
+                "TestProsjekt#1 - Kommentardokument - 4.0.docx",
+                "TestProsjekt#1 - Kommentardokument - 3.0.docx",
+            ]
+            assert [item["version"] for item in reports["reports"]] == ["6.0", "5.0", "4.0", "3.0"]
+        elif project_name == "Bryn Skole":
+            assert [item["report_name"] for item in reports["reports"]] == [
+                "Bryn Skole - Kommentardokument - 6.0.docx",
+                "Bryn Skole - Kommentardokument - 5.0.docx",
+            ]
+            assert [item["version"] for item in reports["reports"]] == ["6.0", "5.0"]
+        else:
+            assert [item["report_name"] for item in reports["reports"]] == [expected_latest] * expected_report_count
         assert reports["reports"][0]["is_latest"] is True
         assert reports["reports"][0]["report_id"] == "0"
         assert reports["reports"][0]["open_url"] == f"/api/projects/{project}/reports/0/open"
         assert reports["reports"][0]["download_url"] == f"/api/projects/{project}/reports/0/download"
+        if project_name == "TestProsjekt#1":
+            assert reports["reports"][0]["version"] == "6.0"
+            latest_open = client.get(f"/api/projects/{project}/reports/latest/open")
+            assert latest_open.status_code == 200
+            assert "TestProsjekt%231%20-%20Kommentardokument%20-%206.0.docx" in latest_open.headers["content-disposition"] or "TestProsjekt#1 - Kommentardokument - 6.0.docx" in latest_open.headers["content-disposition"]
+        elif project_name == "Bryn Skole":
+            assert reports["reports"][0]["version"] == "6.0"
 
         assert files_response.status_code == 200
         files = files_response.json()
@@ -919,6 +1014,52 @@ def test_versioned_comment_documents_are_all_detected_and_sorted_by_created_at(t
     bryn = next(project for project in projects["projects"] if project["project_name"] == "Bryn Skole")
     assert bryn["report_count"] == 6
     assert bryn["comment_document_count"] == 6
+
+
+def test_versioned_comment_documents_ignore_history_and_outputs_duplicates(tmp_path: Path) -> None:
+    appliance_root = _build_versioned_comment_appliance_root(
+        tmp_path,
+        project_name="TestProsjekt#1",
+        versions=["1.0", "2.0", "3.0", "4.0", "5.0", "6.0"],
+        history_versions=["3.0", "4.0", "5.0", "6.0"],
+        include_output_report=True,
+        include_comment_base_report=True,
+    )
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+    project = _project_path("TestProsjekt#1")
+
+    detail_response = client.get(f"/api/projects/{project}")
+    reports_response = client.get(f"/api/projects/{project}/reports")
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["report_count"] == 7
+    assert detail["comment_document_count"] == 7
+    assert detail["latest_comment_document"] == "TestProsjekt#1 - Kommentardokument - 6.0.docx"
+    assert detail["latest_comment_document_open_url"] == "/api/projects/TestProsjekt%231/reports/latest/open"
+
+    assert reports_response.status_code == 200
+    reports = reports_response.json()
+    assert reports["count"] == 7
+    assert [item["report_name"] for item in reports["reports"]] == [
+        "TestProsjekt#1 - Kommentardokument - 6.0.docx",
+        "TestProsjekt#1 - Kommentardokument - 5.0.docx",
+        "TestProsjekt#1 - Kommentardokument - 4.0.docx",
+        "TestProsjekt#1 - Kommentardokument - 3.0.docx",
+        "TestProsjekt#1 - Kommentardokument - 2.0.docx",
+        "TestProsjekt#1 - Kommentardokument - 1.0.docx",
+        "TestProsjekt#1 - Kommentardokument.docx",
+    ]
+    assert [item["version"] for item in reports["reports"]] == ["6.0", "5.0", "4.0", "3.0", "2.0", "1.0", None]
+    assert all(item["size_bytes"] > 0 for item in reports["reports"])
+    assert reports["reports"][0]["is_latest"] is True
+    assert reports["reports"][0]["open_url"] == "/api/projects/TestProsjekt%231/reports/0/open"
+    assert reports["reports"][0]["download_url"] == "/api/projects/TestProsjekt%231/reports/0/download"
+
+    latest_open = client.get("/api/projects/TestProsjekt%231/reports/latest/open")
+    assert latest_open.status_code == 200
+    assert latest_open.content == b"version-6.0"
+    assert "TestProsjekt%231%20-%20Kommentardokument%20-%206.0.docx" in latest_open.headers["content-disposition"] or "TestProsjekt#1 - Kommentardokument - 6.0.docx" in latest_open.headers["content-disposition"]
 
 
 def test_project_write_operations_use_project_relative_paths(tmp_path: Path) -> None:
