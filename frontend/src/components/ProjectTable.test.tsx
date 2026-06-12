@@ -45,6 +45,7 @@ describe("ProjectTable", () => {
     expect(markup).toContain("Åpne prosjekt");
     expect(markup).toContain("Analyser");
     expect(markup).toContain("Slett prosjekt");
+    expect(markup).toContain('class="button button--danger"');
     expect(markup).not.toContain("/home/anbudklient/appliance/.riveanbud_runtime");
   });
 });

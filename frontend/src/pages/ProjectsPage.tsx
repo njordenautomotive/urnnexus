@@ -202,7 +202,7 @@ export function DeleteProjectConfirmationDialog({
           <button type="button" className="button button--secondary" onClick={onCancel} disabled={isDeleting}>
             Avbryt
           </button>
-          <button type="button" className="button" onClick={onConfirm} disabled={isDeleting}>
+          <button type="button" className="button button--danger" onClick={onConfirm} disabled={isDeleting}>
             Slett prosjekt
           </button>
         </div>

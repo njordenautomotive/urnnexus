@@ -100,6 +100,8 @@ describe("ProjectsPage", () => {
     expect(markup).toContain("Slett prosjekt");
     expect(markup).toContain("Dette sletter prosjektet i OneDrive og fjerner det fra Nexus etter synk.");
     expect(markup).toContain("Bryn Skole");
+    expect(markup).toContain('class="button button--danger"');
+    expect(markup).toContain('class="button button--secondary"');
     expect(markup).not.toContain("Fjern fra Nexus");
   });
 });

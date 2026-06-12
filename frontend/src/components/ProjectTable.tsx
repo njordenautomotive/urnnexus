@@ -96,7 +96,7 @@ function ProjectTableRow({
             Åpne prosjekt
           </Link>
           {onDeleteProject ? (
-            <button type="button" className="button button--secondary" onClick={() => onDeleteProject(project)}>
+            <button type="button" className="button button--danger" onClick={() => onDeleteProject(project)}>
               Slett prosjekt
             </button>
           ) : null}
