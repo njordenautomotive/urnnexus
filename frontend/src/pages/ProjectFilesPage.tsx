@@ -309,7 +309,7 @@ function OpenFileButton({ href }: { href: string }) {
         window.setTimeout(() => setIsOpening(false), 4000);
       }}
     >
-      {isOpening ? "Laster ned fil..." : "Åpne"}
+      {isOpening ? "Åpner..." : "Åpne"}
     </button>
   );
 }
@@ -325,7 +325,7 @@ function FileRow({ file }: { file: FileNode }) {
       <span className="file-browser-row__actions">
         {file.open_url ? <OpenFileButton href={file.open_url} /> : null}
         {file.download_url ? (
-          <a className="button button--subtle" href={file.download_url}>
+          <a className="button button--subtle" href={file.download_url} download>
             Last ned
           </a>
         ) : null}
@@ -364,7 +364,7 @@ function SearchResultTable({ files }: { files: FlatFileRecord[] }) {
                 <div className="table-actions">
                   {file.openUrl ? <OpenFileButton href={file.openUrl} /> : null}
                   {file.downloadUrl ? (
-                    <a className="button button--subtle" href={file.downloadUrl}>
+                    <a className="button button--subtle" href={file.downloadUrl} download>
                       Last ned
                     </a>
                   ) : null}

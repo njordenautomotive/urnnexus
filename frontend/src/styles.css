@@ -340,6 +340,24 @@ code {
   opacity: 0.56;
 }
 
+.button--muted,
+.button--muted:hover,
+.button--muted:focus-visible {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.button--muted:disabled,
+.button--muted:disabled:hover,
+.button--muted:disabled:focus-visible {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  border-color: var(--border);
+  opacity: 1;
+  transform: none;
+}
+
 .button--secondary {
   background: var(--surface);
   color: var(--text);
@@ -549,6 +567,24 @@ code {
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
+  align-items: flex-start;
+}
+
+.dashboard-actions__stack {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.dashboard-actions__note {
+  max-width: 320px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.dashboard-actions__note--warning {
+  color: var(--warning);
 }
 
 .dashboard-sync-details {
@@ -1483,6 +1519,10 @@ code {
 
 .inline-note--error {
   color: var(--danger);
+}
+
+.inline-note--warning {
+  color: var(--warning);
 }
 
 .notice-stack {

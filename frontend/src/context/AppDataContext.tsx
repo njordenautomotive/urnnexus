@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { getHealth, getProjects, getSyncStatus, runSync } from "../lib/api";
+import { getAnalysisStatus, getHealth, getProjects, getSyncStatus, runSync } from "../lib/api";
+import { APPLIANCE_BUSY_MESSAGE, SYNC_STALE_LOCK_WARNING, isLockBusyError } from "../lib/applianceStatus";
 import { createProjectViewModels, filterVisibleProjects, showSampleProjectsInUi, type ProjectViewModel } from "../lib/projects";
-import type { HealthResponse } from "../types";
+import type { AnalysisStatusResponse, HealthResponse, SyncStatusResponse } from "../types";
 
 const DAILY_SYNC_STORAGE_KEY = "urn-nexus:daily-onedrive-sync";
 const DAILY_SYNC_TIMEOUT_MS = 25_000;
@@ -20,6 +21,11 @@ interface DailySyncRecord {
   completed_at: string | null;
   status: DailySyncRecordStatus;
   last_error: string | null;
+}
+
+interface ApplianceStatusSnapshot {
+  syncStatus: SyncStatusResponse;
+  analysisStatus: AnalysisStatusResponse;
 }
 
 interface DailySyncState {
@@ -202,13 +208,26 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       storeSyncRecord(record);
     };
 
-    const showRunningModal = (detail = DAILY_SYNC_BACKGROUND_MESSAGE) => {
+    const clearStoredRecord = () => {
+      currentRecord = null;
+      try {
+        window.localStorage.removeItem(DAILY_SYNC_STORAGE_KEY);
+      } catch {
+        // Ignore storage failures and fall back to in-memory behavior for this session.
+      }
+    };
+
+    const showRunningModal = (detail: string | null = DAILY_SYNC_BACKGROUND_MESSAGE, message = DAILY_SYNC_MESSAGE) => {
       setModal({
         mode: "running",
         title: DAILY_SYNC_TITLE,
-        message: DAILY_SYNC_MESSAGE,
+        message,
         detail,
       });
+    };
+
+    const showBusyModal = () => {
+      showRunningModal(null, APPLIANCE_BUSY_MESSAGE);
     };
 
     const showTimeoutModal = (detail = "OneDrive synkroniserer fortsatt i bakgrunnen.") => {
@@ -255,19 +274,29 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       }, DAILY_SYNC_TIMEOUT_MS);
     };
 
+    async function readApplianceStatus(): Promise<ApplianceStatusSnapshot> {
+      const [syncStatus, analysisStatus] = await Promise.all([getSyncStatus(), getAnalysisStatus()]);
+      return { syncStatus, analysisStatus };
+    }
+
     async function pollSyncStatus() {
       if (cancelled) {
         return;
       }
 
       try {
-        const status = await getSyncStatus();
+        const { syncStatus, analysisStatus } = await readApplianceStatus();
         if (cancelled) {
           return;
         }
 
-        if (status.running) {
-          const startedAt = status.last_started_at ?? currentRecord?.started_at ?? new Date().toISOString();
+        const applianceActivity = syncStatus.activity !== "idle" ? syncStatus.activity : analysisStatus.activity;
+        const syncRunning = syncStatus.running || (syncStatus.lock_exists && applianceActivity === "sync");
+        const analysisRunning = analysisStatus.running || (analysisStatus.lock_exists && applianceActivity === "analysis");
+        const anyLiveLock = syncStatus.lock_exists || analysisStatus.lock_exists;
+
+        if (syncRunning) {
+          const startedAt = syncStatus.last_started_at ?? currentRecord?.started_at ?? new Date().toISOString();
           const nextRecord: DailySyncRecord = {
             date: currentRecord?.date ?? getLocalDayKey(new Date(startedAt)),
             started_at: startedAt,
@@ -293,12 +322,30 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const normalizedStatus = status.status.trim().toLowerCase();
-        const startedAt = status.last_started_at ?? currentRecord?.started_at ?? null;
-        const completedAt = status.last_completed_at ?? new Date().toISOString();
+        if (analysisRunning || anyLiveLock) {
+          if (currentRecord?.status === "failed" && isLockBusyError(currentRecord.last_error)) {
+            clearStoredRecord();
+          }
+          showBusyModal();
+          schedulePoll();
+          return;
+        }
 
-        if (normalizedStatus.includes("fail") || normalizedStatus.includes("error") || Boolean(status.last_error)) {
-          const detail = status.last_error ?? currentRecord?.last_error ?? "Kunne ikke fullføre OneDrive-synkronisering.";
+        const normalizedStatus = syncStatus.status.trim().toLowerCase();
+        const startedAt = syncStatus.last_started_at ?? currentRecord?.started_at ?? null;
+        const completedAt = syncStatus.last_completed_at ?? new Date().toISOString();
+        const backendLockError = isLockBusyError(syncStatus.last_error);
+        const storedLockError = isLockBusyError(currentRecord?.last_error);
+
+        if (backendLockError || storedLockError) {
+          clearStoredRecord();
+          clearTimers();
+          setDailySync(null);
+          return;
+        }
+
+        if (normalizedStatus.includes("fail") || normalizedStatus.includes("error") || Boolean(syncStatus.last_error)) {
+          const detail = syncStatus.last_error ?? currentRecord?.last_error ?? "Kunne ikke fullføre OneDrive-synkronisering.";
           persistRecord({
             date: currentRecord?.date ?? getLocalDayKey(),
             started_at: startedAt,
@@ -311,7 +358,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (normalizedStatus.includes("complete") || normalizedStatus.includes("skipped") || Boolean(status.last_completed_at)) {
+        if (normalizedStatus.includes("complete") || normalizedStatus.includes("skipped") || Boolean(syncStatus.last_completed_at)) {
           persistRecord({
             date: currentRecord?.date ?? getLocalDayKey(),
             started_at: startedAt,
@@ -395,12 +442,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         }
 
         try {
-          const status = await getSyncStatus();
+          const { syncStatus, analysisStatus } = await readApplianceStatus();
           if (cancelled) {
             return;
           }
-          if (status.running) {
-            const startedAt = status.last_started_at ?? new Date().toISOString();
+
+          const applianceActivity = syncStatus.activity !== "idle" ? syncStatus.activity : analysisStatus.activity;
+          const syncRunning = syncStatus.running || (syncStatus.lock_exists && applianceActivity === "sync");
+          const analysisRunning = analysisStatus.running || (analysisStatus.lock_exists && applianceActivity === "analysis");
+          const anyLiveLock = syncStatus.lock_exists || analysisStatus.lock_exists;
+
+          if (syncRunning) {
+            const startedAt = syncStatus.last_started_at ?? new Date().toISOString();
             persistRecord({
               date: todayKey,
               started_at: startedAt,
@@ -413,8 +466,27 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             schedulePoll();
             return;
           }
+
+          if (analysisRunning || anyLiveLock) {
+            showBusyModal();
+            schedulePoll();
+            return;
+          }
         } catch {
-          // fall through to error modal below
+          // fall through to error handling below
+        }
+
+        if (error instanceof Error && error.message === APPLIANCE_BUSY_MESSAGE) {
+          clearStoredRecord();
+          showBusyModal();
+          schedulePoll();
+          return;
+        }
+
+        if (error instanceof Error && isLockBusyError(error.message)) {
+          clearStoredRecord();
+          showFailureModal(SYNC_STALE_LOCK_WARNING);
+          return;
         }
 
         showFailureModal(error instanceof Error ? error.message : "Kunne ikke starte OneDrive-synkronisering.");
@@ -426,19 +498,27 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const storedRecord = currentRecord;
 
       try {
-        const status = await getSyncStatus();
+        const { syncStatus, analysisStatus } = await readApplianceStatus();
         if (cancelled) {
           return;
         }
 
-        if (status.running) {
-          const record: DailySyncRecord = storedRecord?.date === todayKey && storedRecord.status === "timeout"
-            ? storedRecord
+        const backendLockError = isLockBusyError(syncStatus.last_error);
+        const storedLockError = isLockBusyError(storedRecord?.last_error);
+        const activeStoredRecord = backendLockError || storedLockError ? null : storedRecord;
+        const applianceActivity = syncStatus.activity !== "idle" ? syncStatus.activity : analysisStatus.activity;
+        const syncRunning = syncStatus.running || (syncStatus.lock_exists && applianceActivity === "sync");
+        const analysisRunning = analysisStatus.running || (analysisStatus.lock_exists && applianceActivity === "analysis");
+        const anyLiveLock = syncStatus.lock_exists || analysisStatus.lock_exists;
+
+        if (syncRunning) {
+          const record: DailySyncRecord = activeStoredRecord?.date === todayKey && activeStoredRecord.status === "timeout"
+            ? activeStoredRecord
             : {
                 date: todayKey,
-                started_at: status.last_started_at ?? storedRecord?.started_at ?? new Date().toISOString(),
+                started_at: syncStatus.last_started_at ?? activeStoredRecord?.started_at ?? new Date().toISOString(),
                 completed_at: null,
-                status: storedRecord?.status === "timeout" ? "timeout" : "running",
+                status: activeStoredRecord?.status === "timeout" ? "timeout" : "running",
                 last_error: null,
               };
           persistRecord(record);
@@ -452,17 +532,31 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const normalizedStatus = status.status.trim().toLowerCase();
-        const backendCompletedToday = Boolean(status.last_completed_at && isSameLocalDayAsToday(status.last_completed_at));
-        const backendStartedToday = Boolean(status.last_started_at && isSameLocalDayAsToday(status.last_started_at));
-        const backendFailed = normalizedStatus.includes("fail") || normalizedStatus.includes("error") || Boolean(status.last_error);
+        if (analysisRunning || anyLiveLock) {
+          if (storedRecord?.status === "failed" && storedLockError) {
+            clearStoredRecord();
+          }
+          showBusyModal();
+          schedulePoll();
+          return;
+        }
+
+        if (backendLockError || storedLockError) {
+          clearStoredRecord();
+        }
+
+        const normalizedStatus = syncStatus.status.trim().toLowerCase();
+        const backendVisibleError = backendLockError ? null : syncStatus.last_error;
+        const backendCompletedToday = Boolean(syncStatus.last_completed_at && isSameLocalDayAsToday(syncStatus.last_completed_at));
+        const backendStartedToday = Boolean(syncStatus.last_started_at && isSameLocalDayAsToday(syncStatus.last_started_at));
+        const backendFailed = !backendLockError && (normalizedStatus.includes("fail") || normalizedStatus.includes("error") || Boolean(backendVisibleError));
 
         if (backendFailed) {
-          const detail = status.last_error ?? storedRecord?.last_error ?? DAILY_SYNC_FAILED_MESSAGE;
+          const detail = backendVisibleError ?? activeStoredRecord?.last_error ?? DAILY_SYNC_FAILED_MESSAGE;
           persistRecord({
             date: todayKey,
-            started_at: status.last_started_at ?? storedRecord?.started_at ?? null,
-            completed_at: status.last_completed_at ?? new Date().toISOString(),
+            started_at: syncStatus.last_started_at ?? activeStoredRecord?.started_at ?? null,
+            completed_at: syncStatus.last_completed_at ?? new Date().toISOString(),
             status: "failed",
             last_error: detail,
           });
@@ -473,31 +567,31 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         if (backendCompletedToday) {
           persistRecord({
             date: todayKey,
-            started_at: status.last_started_at ?? storedRecord?.started_at ?? null,
-            completed_at: status.last_completed_at ?? new Date().toISOString(),
+            started_at: syncStatus.last_started_at ?? activeStoredRecord?.started_at ?? null,
+            completed_at: syncStatus.last_completed_at ?? new Date().toISOString(),
             status: "completed",
             last_error: null,
           });
-          if (storedRecord?.status === "running" || storedRecord?.status === "timeout") {
+          if (activeStoredRecord?.status === "running" || activeStoredRecord?.status === "timeout") {
             setRefreshIndex((value) => value + 1);
           }
           return;
         }
 
-        if (storedRecord?.date === todayKey) {
-          if (storedRecord.status === "completed") {
+        if (activeStoredRecord?.date === todayKey) {
+          if (activeStoredRecord.status === "completed") {
             return;
           }
-          if (storedRecord.status === "failed") {
-            showFailureModal(storedRecord.last_error ?? DAILY_SYNC_FAILED_MESSAGE);
+          if (activeStoredRecord.status === "failed") {
+            showFailureModal(activeStoredRecord.last_error ?? DAILY_SYNC_FAILED_MESSAGE);
             return;
           }
-          if (storedRecord.status === "timeout") {
-            showTimeoutModal(storedRecord.last_error ?? "OneDrive synkroniserer fortsatt i bakgrunnen.");
+          if (activeStoredRecord.status === "timeout") {
+            showTimeoutModal(activeStoredRecord.last_error ?? "OneDrive synkroniserer fortsatt i bakgrunnen.");
             schedulePoll();
             return;
           }
-          if (storedRecord.status === "running") {
+          if (activeStoredRecord.status === "running") {
             showRunningModal();
             scheduleTimeout();
             schedulePoll();
@@ -505,7 +599,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        if (backendStartedToday) {
+        if (backendStartedToday && !backendLockError && !storedLockError) {
           return;
         }
 

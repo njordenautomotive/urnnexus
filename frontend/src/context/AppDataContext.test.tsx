@@ -4,9 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppLayout } from "../components/Layout";
+import { APPLIANCE_BUSY_MESSAGE } from "../lib/applianceStatus";
 import * as api from "../lib/api";
 import { AppDataProvider } from "./AppDataContext";
-import type { HealthResponse, ProjectListResponse, SyncRunResponse, SyncStatusResponse } from "../types";
+import type { AnalysisStatusResponse, HealthResponse, ProjectListResponse, SyncRunResponse, SyncStatusResponse } from "../types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,11 +49,35 @@ function getLocalDayKey(date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
-function renderApp() {
+function makeIdleAnalysisStatus(): AnalysisStatusResponse {
+  return {
+    running: false,
+    process_alive: false,
+    lock_exists: false,
+    lock_stale: false,
+    activity: "idle",
+    job_id: null,
+    last_started_at: null,
+    last_completed_at: null,
+    last_error: null,
+    projects_synced: 0,
+    files_changed: 0,
+    reports_found: 0,
+    reports_generated: 0,
+    email_mode: null,
+    project_name: null,
+    status: "idle",
+    analysis_started: false,
+  };
+}
+
+function renderApp(analysisStatus: AnalysisStatusResponse = makeIdleAnalysisStatus()) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   mountedRoot = root;
+
+  vi.spyOn(api, "getAnalysisStatus").mockResolvedValue(analysisStatus);
 
   act(() => {
     root.render(
@@ -78,6 +103,10 @@ function makeProjectsResponse(): ProjectListResponse {
 function makeIdleSyncStatus(): SyncStatusResponse {
   return {
     running: false,
+    process_alive: false,
+    lock_exists: false,
+    lock_stale: false,
+    activity: "idle",
     job_id: null,
     last_started_at: null,
     last_completed_at: null,
@@ -92,6 +121,10 @@ function makeIdleSyncStatus(): SyncStatusResponse {
 function makeRunningSyncStatus(): SyncStatusResponse {
   return {
     running: true,
+    process_alive: true,
+    lock_exists: true,
+    lock_stale: false,
+    activity: "sync",
     job_id: "sync-job",
     last_started_at: "2026-06-12T08:00:00+02:00",
     last_completed_at: null,
@@ -106,6 +139,10 @@ function makeRunningSyncStatus(): SyncStatusResponse {
 function makeCompletedSyncStatus(): SyncStatusResponse {
   return {
     running: false,
+    process_alive: false,
+    lock_exists: false,
+    lock_stale: false,
+    activity: "idle",
     job_id: "sync-job",
     last_started_at: "2026-06-12T08:00:00+02:00",
     last_completed_at: "2026-06-12T08:03:00+02:00",
@@ -120,6 +157,10 @@ function makeCompletedSyncStatus(): SyncStatusResponse {
 function makeFailedSyncStatus(): SyncStatusResponse {
   return {
     running: false,
+    process_alive: false,
+    lock_exists: false,
+    lock_stale: false,
+    activity: "idle",
     job_id: "sync-job",
     last_started_at: "2026-06-12T08:00:00+02:00",
     last_completed_at: "2026-06-12T08:05:00+02:00",
@@ -333,6 +374,77 @@ describe("AppDataProvider daily sync", () => {
     });
 
     expect(container.textContent).not.toContain("OneDrive-synkroniseringen feilet.");
+  });
+
+  it("clears stale lock failures from storage and restarts sync", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-12T11:00:00+02:00"));
+
+    const todayKey = getLocalDayKey();
+    window.localStorage.setItem(
+      "urn-nexus:daily-onedrive-sync",
+      JSON.stringify({
+        date: todayKey,
+        started_at: "2026-06-12T10:45:00+02:00",
+        completed_at: "2026-06-12T10:46:00+02:00",
+        status: "failed",
+        last_error: "Awaiting history lock while waiting for onedrive_sync_history.lock to clear.",
+      }),
+    );
+
+    const getProjectsSpy = vi.spyOn(api, "getProjects").mockResolvedValue(makeProjectsResponse());
+    const getHealthSpy = vi.spyOn(api, "getHealth").mockResolvedValue(health);
+    const getSyncStatusSpy = vi.spyOn(api, "getSyncStatus").mockResolvedValue(makeIdleSyncStatus());
+    const runSyncSpy = vi.spyOn(api, "runSync").mockResolvedValue(makeSyncRunResponse());
+
+    const { container } = renderApp();
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(runSyncSpy).toHaveBeenCalledTimes(1);
+    expect(getSyncStatusSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Vent et øyeblikk mens OneDrive synkroniseres");
+    expect(container.textContent).not.toContain("OneDrive-synkroniseringen feilet.");
+    expect(container.textContent).not.toContain("Awaiting history lock");
+    expect(container.textContent).not.toContain("onedrive_sync_history.lock");
+    expect(JSON.parse(window.localStorage.getItem("urn-nexus:daily-onedrive-sync") ?? "null")).toMatchObject({
+      status: "running",
+      date: todayKey,
+      last_error: null,
+    });
+    expect(getProjectsSpy).toHaveBeenCalledTimes(1);
+    expect(getHealthSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the busy modal when analysis is already running", async () => {
+    const getProjectsSpy = vi.spyOn(api, "getProjects").mockResolvedValue(makeProjectsResponse());
+    const getHealthSpy = vi.spyOn(api, "getHealth").mockResolvedValue(health);
+    const getSyncStatusSpy = vi.spyOn(api, "getSyncStatus").mockResolvedValue(makeIdleSyncStatus());
+    const runSyncSpy = vi.spyOn(api, "runSync").mockResolvedValue(makeSyncRunResponse());
+
+    const { container } = renderApp({
+      ...makeIdleAnalysisStatus(),
+      running: true,
+      status: "running",
+      last_started_at: "2026-06-12T10:59:00+02:00",
+      last_completed_at: null,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(runSyncSpy).not.toHaveBeenCalled();
+    expect(getSyncStatusSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(APPLIANCE_BUSY_MESSAGE);
+    expect(container.textContent).not.toContain("Awaiting history lock");
+    expect(container.textContent).not.toContain("onedrive_sync_history.lock");
+    expect(getProjectsSpy).toHaveBeenCalledTimes(1);
+    expect(getHealthSpy).toHaveBeenCalledTimes(1);
   });
 
   it("skips the daily sync after it has already completed today", async () => {

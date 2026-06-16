@@ -3,14 +3,27 @@ import { Link } from "react-router-dom";
 import { AppHeader } from "../components/Layout";
 import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
-import { formatDateTime, getSyncStatus, runSync } from "../lib/api";
+import { ApiRequestError, formatDateTime, getAnalysisStatus, getSyncStatus, runSync } from "../lib/api";
+import {
+  ANALYSIS_RUNNING_LABEL,
+  APPLIANCE_BUSY_MESSAGE,
+  APPLIANCE_BUSY_LABEL,
+  APPLIANCE_CLEAR_MESSAGE,
+  SYNC_FAILED_LABEL,
+  SYNC_LOCK_HELP_TEXT,
+  SYNC_RUNNING_LABEL,
+  getVisibleSyncErrorMessage,
+  isLockBusyError,
+} from "../lib/applianceStatus";
 import { sortProjectsByActivity, type ProjectViewModel } from "../lib/projects";
 import { useAppData } from "../context/AppDataContext";
 import { StatusPill } from "../components/StatusPill";
 import { CopyLinkButton } from "../components/CopyLinkButton";
-import type { HealthResponse, SyncStatusResponse } from "../types";
+import type { AnalysisStatusResponse, HealthResponse, SyncStatusResponse } from "../types";
 
-const SYNC_ONLY_DESCRIPTION = " ";
+export { getVisibleSyncErrorMessage as getSyncLastErrorMessage, isLockBusyError as isSyncBusyLockError } from "../lib/applianceStatus";
+
+const SYNC_START_DESCRIPTION = "Starter en trygg OneDrive-sync uten rapportgenerering.";
 
 export function resolveDashboardLastSyncedAt(syncStatus: SyncStatusResponse | null, health: HealthResponse | null): string | null {
   return syncStatus?.last_completed_at ?? health?.last_synced_at ?? null;
@@ -19,6 +32,8 @@ export function resolveDashboardLastSyncedAt(syncStatus: SyncStatusResponse | nu
 export function DashboardPage() {
   const { projects, projectsLoading, projectsError, health, healthLoading, healthError, refresh } = useAppData();
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatusResponse | null>(null);
+  const [syncBusyLive, setSyncBusyLive] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const visibleProjects = sortProjectsByActivity(projects);
@@ -26,8 +41,27 @@ export function DashboardPage() {
   const applianceStatus = healthLoading ? "loading" : health?.appliance_available ? "online" : "offline";
   const applianceLabel = healthLoading ? "Laster" : health?.appliance_available ? "online" : "offline";
   const metrics = buildDashboardMetrics(visibleProjects);
-  const syncPillStatus = syncStatus?.running ? "RUNNING" : syncStatus?.status ?? "idle";
-  const syncPillLabel = syncStatus?.running ? "Synk pågår" : syncStatus?.status === "completed" ? "Sist synk fullført" : syncStatus?.status === "failed" ? "Synk feilet" : "Klar";
+  const applianceActivity = syncStatus?.activity && syncStatus.activity !== "idle" ? syncStatus.activity : analysisStatus?.activity ?? "idle";
+  const syncHasStaleLock = Boolean(syncStatus?.last_error && isLockBusyError(syncStatus.last_error));
+  const applianceBusy =
+    syncBusyLive || syncStatus?.running === true || analysisStatus?.running === true || syncStatus?.lock_exists === true || analysisStatus?.lock_exists === true;
+  const syncPillStatus = applianceBusy ? "RUNNING" : syncHasStaleLock ? "idle" : syncStatus?.status === "failed" ? "FAILED" : "idle";
+  const syncPillLabel = applianceBusy
+    ? applianceActivity === "sync"
+      ? SYNC_RUNNING_LABEL
+      : applianceActivity === "analysis"
+        ? ANALYSIS_RUNNING_LABEL
+        : APPLIANCE_BUSY_LABEL
+    : syncHasStaleLock
+      ? APPLIANCE_CLEAR_MESSAGE
+      : syncStatus?.status === "failed"
+        ? SYNC_FAILED_LABEL
+        : APPLIANCE_CLEAR_MESSAGE;
+  const syncButtonDisabled = applianceBusy;
+  const syncButtonTitle = applianceBusy ? SYNC_LOCK_HELP_TEXT : SYNC_START_DESCRIPTION;
+  const syncLastErrorMessage = getVisibleSyncErrorMessage(syncStatus?.last_error);
+  const syncLastErrorTone = syncStatus?.last_error && isLockBusyError(syncStatus.last_error) ? "warning" : "error";
+  const busyActionNote = applianceBusy ? SYNC_LOCK_HELP_TEXT : null;
   const dashboardLastSyncedAt = resolveDashboardLastSyncedAt(syncStatus, health);
   const recentReports = visibleProjects
     .filter((project) => project.latestReport !== null)
@@ -41,33 +75,46 @@ export function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    let latestSyncStatus = syncStatus;
+    let latestAnalysisStatus = analysisStatus;
 
-    async function pollSyncStatus() {
-      try {
-        const status = await getSyncStatus();
-        if (cancelled) {
-          return;
-        }
-        setSyncStatus(status);
-        setSyncError(null);
-        timer = window.setTimeout(pollSyncStatus, status.running ? 3000 : 15000);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setSyncError(error instanceof Error ? error.message : "Kunne ikke lese sync-status.");
-        timer = window.setTimeout(pollSyncStatus, 20000);
+    async function pollApplianceStatus() {
+      const [syncResult, analysisResult] = await Promise.allSettled([getSyncStatus(), getAnalysisStatus()]);
+      if (cancelled) {
+        return;
       }
+
+      if (syncResult.status === "fulfilled") {
+        latestSyncStatus = syncResult.value;
+        setSyncStatus(syncResult.value);
+        setSyncError(null);
+      } else {
+        setSyncError(syncResult.reason instanceof Error ? syncResult.reason.message : "Kunne ikke lese sync-status.");
+      }
+
+      if (analysisResult.status === "fulfilled") {
+        latestAnalysisStatus = analysisResult.value;
+        setAnalysisStatus(analysisResult.value);
+      } else {
+        console.error("[DashboardPage] getAnalysisStatus failed", analysisResult.reason);
+      }
+
+      const busyFromStatuses = Boolean(latestSyncStatus?.running || latestAnalysisStatus?.running);
+      const busy = busyFromStatuses || syncBusyLive;
+      if (!busyFromStatuses && syncBusyLive) {
+        setSyncBusyLive(false);
+      }
+      timer = window.setTimeout(pollApplianceStatus, busy ? 600000 : 30000);
     }
 
-    void pollSyncStatus();
+    void pollApplianceStatus();
     return () => {
       cancelled = true;
       if (timer !== undefined) {
         window.clearTimeout(timer);
       }
     };
-  }, []);
+  }, [syncBusyLive]);
 
   async function handleRunSync() {
     setSyncMessage("Starter trygg OneDrive-sync uten rapportgenerering ...");
@@ -75,6 +122,9 @@ export function DashboardPage() {
     try {
       const response = await runSync();
       syncStarted = true;
+      if (response.status === "already_running") {
+        setSyncBusyLive(true);
+      }
       setSyncMessage(response.status === "already_running" ? "OneDrive-sync kjører allerede." : "OneDrive-sync startet uten rapportgenerering.");
       try {
         setSyncStatus(await getSyncStatus());
@@ -83,6 +133,12 @@ export function DashboardPage() {
         setSyncError(error instanceof Error ? error.message : "Kunne ikke lese sync-status.");
       }
     } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 503 && error.message === APPLIANCE_BUSY_MESSAGE) {
+        setSyncBusyLive(true);
+        setSyncError(null);
+        setSyncMessage(null);
+        return;
+      }
       setSyncMessage(error instanceof Error ? error.message : "Kunne ikke starte OneDrive-sync.");
     } finally {
       if (syncStarted) {
@@ -126,16 +182,19 @@ export function DashboardPage() {
             <StatusPill status={syncPillStatus} label={syncPillLabel} />
           </div>
           <div className="dashboard-actions">
-            <button
-              type="button"
-              className="button"
-              onClick={() => void handleRunSync()}
-              disabled={syncStatus?.running === true}
-              title={SYNC_ONLY_DESCRIPTION}
-              aria-label={`Synk OneDrive. ${SYNC_ONLY_DESCRIPTION}`}
-            >
-              Synk OneDrive
-            </button>
+            <div className="dashboard-actions__stack">
+              <button
+                type="button"
+                className={`button${applianceBusy ? " button--muted" : ""}`}
+                onClick={() => void handleRunSync()}
+                disabled={syncButtonDisabled}
+                title={syncButtonTitle}
+                aria-label={`Synk OneDrive. ${syncButtonTitle}`}
+              >
+                Synk OneDrive
+              </button>
+              {busyActionNote ? <div className="dashboard-actions__note dashboard-actions__note--warning">{busyActionNote}</div> : null}
+            </div>
           </div>
         </div>
         <div className="dashboard-sync-details">
@@ -144,10 +203,11 @@ export function DashboardPage() {
           <span>Endrede filer siste sync: {syncStatus?.files_changed !== undefined ? syncStatus.files_changed.toLocaleString("nb-NO") : "0"}</span>
           <span>Rapporter funnet: {syncStatus?.reports_found !== undefined ? syncStatus.reports_found.toLocaleString("nb-NO") : "0"}</span>
         </div>
-        <div className="dashboard-statusline__note">{SYNC_ONLY_DESCRIPTION}</div>
         {healthError ? <div className="inline-note inline-note--error">{healthError}</div> : null}
         {syncError ? <div className="inline-note inline-note--error">{syncError}</div> : null}
-        {syncStatus?.last_error ? <div className="inline-note inline-note--error">Siste sync-feil: {syncStatus.last_error}</div> : null}
+        {syncLastErrorMessage ? (
+          <div className={syncLastErrorTone === "warning" ? "inline-note inline-note--warning" : "inline-note inline-note--error"}>{syncLastErrorMessage}</div>
+        ) : null}
         {syncMessage ? <div className="inline-note">{syncMessage}</div> : null}
       </section>
 

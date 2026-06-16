@@ -97,6 +97,10 @@ class SyncRunResponse(ApiModel):
 
 class SyncStatusResponse(ApiModel):
     running: bool
+    process_alive: bool = False
+    lock_exists: bool = False
+    lock_stale: bool = False
+    activity: Literal["sync", "analysis", "idle"] = "idle"
     job_id: str | None = None
     last_started_at: datetime | None = None
     last_completed_at: datetime | None = None
@@ -109,6 +113,10 @@ class SyncStatusResponse(ApiModel):
 
 class AnalysisStatusResponse(ApiModel):
     running: bool
+    process_alive: bool = False
+    lock_exists: bool = False
+    lock_stale: bool = False
+    activity: Literal["sync", "analysis", "idle"] = "idle"
     job_id: str | None = None
     last_started_at: datetime | None = None
     last_completed_at: datetime | None = None

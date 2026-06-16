@@ -1,0 +1,20 @@
+[Unit]
+Description=URN Nexus Frontend
+Wants=network-online.target urn-nexus-backend.service
+After=network-online.target urn-nexus-backend.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=anbudklient
+Group=anbudklient
+WorkingDirectory=/home/anbudklient/urn-nexus-web/frontend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/anbudklient/urn-nexus-web/.venv/bin/python /home/anbudklient/urn-nexus-web/scripts/serve_frontend_dist.py --dist /home/anbudklient/urn-nexus-web/frontend/dist --backend http://127.0.0.1:8000 --host 127.0.0.1 --port 5173
+Restart=always
+RestartSec=10s
+TimeoutStopSec=30s
+SyslogIdentifier=urn-nexus-frontend
+
+[Install]
+WantedBy=multi-user.target

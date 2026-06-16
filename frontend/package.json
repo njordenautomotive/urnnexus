@@ -4,7 +4,9 @@
   "version": "0.1.5",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.js",
+    "dev:vite": "vite",
+    "serve": "node scripts/dev.js --prod",
     "build": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run"

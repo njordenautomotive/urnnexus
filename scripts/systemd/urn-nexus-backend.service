@@ -1,0 +1,21 @@
+[Unit]
+Description=URN Nexus Backend
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=anbudklient
+Group=anbudklient
+WorkingDirectory=/home/anbudklient/urn-nexus-web
+EnvironmentFile=/etc/urn-nexus/urn-nexus.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/anbudklient/urn-nexus-web/.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=10s
+TimeoutStopSec=30s
+SyslogIdentifier=urn-nexus-backend
+
+[Install]
+WantedBy=multi-user.target

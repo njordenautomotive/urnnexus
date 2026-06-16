@@ -54,6 +54,7 @@ npm run dev
 ```
 
 Frontend kjører normalt på `http://127.0.0.1:5173` og proxyer `/api` til backend.
+`npm run dev` starter vanlig Vite-utvikling lokalt. Når prosessen kjøres under systemd, bruker samme inngang en stabil statisk produksjonsserver fra `scripts/serve_frontend_dist.py`.
 
 Standardvisningen skjuler sample-prosjekter. Hvis du vil se dem i frontend under utvikling, sett:
 
@@ -65,6 +66,42 @@ Hvis backend ligger på en annen adresse, kan du sette:
 
 ```bash
 export VITE_BACKEND_URL=http://127.0.0.1:8000
+```
+
+## Produksjonsdrift
+
+For permanent lokal drift anbefales denne rekkefølgen:
+
+```bash
+cd /home/anbudklient/urn-nexus-web/frontend
+npm install
+npm run build
+```
+
+Installer deretter unit-filene fra `scripts/systemd/` til `/etc/systemd/system/` og last inn systemd på nytt:
+
+```bash
+sudo install -m 644 scripts/systemd/urn-nexus-backend.service /etc/systemd/system/urn-nexus-backend.service
+sudo install -m 644 scripts/systemd/urn-nexus-frontend.service /etc/systemd/system/urn-nexus-frontend.service
+sudo install -m 644 scripts/systemd/cloudflared.service /etc/systemd/system/cloudflared.service
+sudo systemctl daemon-reload
+sudo systemctl enable urn-nexus-backend.service urn-nexus-frontend.service cloudflared.service
+sudo systemctl restart urn-nexus-backend.service urn-nexus-frontend.service cloudflared.service
+sudo systemctl status urn-nexus-backend.service urn-nexus-frontend.service cloudflared.service --no-pager
+```
+
+Kjør diagnose og restart med:
+
+```bash
+./scripts/check_nexus_runtime.sh
+sudo ./scripts/restart_nexus_runtime.sh
+```
+
+Hvis du vil bruke den rene Vite-devserveren eksplisitt, finnes også:
+
+```bash
+cd frontend
+npm run dev:vite
 ```
 
 ## Bygg og tester

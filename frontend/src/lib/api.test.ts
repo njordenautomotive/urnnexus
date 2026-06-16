@@ -12,6 +12,10 @@ describe("api sync", () => {
         JSON.stringify({
           job_id: "sync-job",
           running: true,
+          process_alive: true,
+          lock_exists: true,
+          lock_stale: false,
+          activity: "sync",
           started_at: "2026-06-08T08:00:00+02:00",
           status: "started",
           sync_only: true,
@@ -108,6 +112,10 @@ describe("api sync", () => {
       new Response(
         JSON.stringify({
           running: false,
+          process_alive: false,
+          lock_exists: false,
+          lock_stale: false,
+          activity: "idle",
           job_id: "analysis-job",
           last_started_at: "2026-06-09T09:00:00+02:00",
           last_completed_at: "2026-06-09T09:15:00+02:00",

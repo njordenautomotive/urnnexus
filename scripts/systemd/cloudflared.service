@@ -1,0 +1,15 @@
+[Unit]
+Description=cloudflared
+Wants=network-online.target urn-nexus-backend.service urn-nexus-frontend.service
+After=network-online.target urn-nexus-backend.service urn-nexus-frontend.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/cloudflared --no-autoupdate --config /etc/cloudflared/config.yml tunnel run
+Restart=always
+RestartSec=10s
+TimeoutStartSec=30s
+
+[Install]
+WantedBy=multi-user.target

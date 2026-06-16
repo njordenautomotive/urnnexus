@@ -55,4 +55,13 @@ describe("ReportTable", () => {
     expect(markup).toContain("Arkiv");
     expect(markup).not.toContain("Bryn Skole - Kommentardokument - 6.0 - 6.0.docx");
   });
+
+  it("renders open and download as distinct actions", () => {
+    const markup = renderToStaticMarkup(<ReportTable reports={reports} />);
+
+    expect(markup).toContain('href="/api/projects/Bryn%20Skole/reports/0/open"');
+    expect(markup).toContain('target="_blank"');
+    expect(markup).toContain('href="/api/projects/Bryn%20Skole/reports/0/download"');
+    expect(markup).toContain('download=""');
+  });
 });

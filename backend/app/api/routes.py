@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from html import escape
 import logging
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from backend.app.models.health import HealthResponse
 from backend.app.models.operations import (
@@ -38,8 +40,18 @@ router = APIRouter(prefix="/api", tags=["appliance"])
 
 def _report_media_type(filename: str) -> str:
     suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if suffix == "doc":
+        return "application/msword"
     if suffix == "docx":
         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if suffix == "xls":
+        return "application/vnd.ms-excel"
+    if suffix == "xlsx":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if suffix == "ppt":
+        return "application/vnd.ms-powerpoint"
+    if suffix == "pptx":
+        return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     if suffix == "pdf":
         return "application/pdf"
     return "application/octet-stream"
@@ -47,12 +59,20 @@ def _report_media_type(filename: str) -> str:
 
 def _file_media_type(filename: str) -> str:
     suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    if suffix == "pdf":
-        return "application/pdf"
+    if suffix == "doc":
+        return "application/msword"
     if suffix == "docx":
         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if suffix == "xls":
+        return "application/vnd.ms-excel"
     if suffix == "xlsx":
         return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if suffix == "ppt":
+        return "application/vnd.ms-powerpoint"
+    if suffix == "pptx":
+        return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    if suffix == "pdf":
+        return "application/pdf"
     if suffix in {"jpg", "jpeg"}:
         return "image/jpeg"
     if suffix == "png":
@@ -60,6 +80,191 @@ def _file_media_type(filename: str) -> str:
     if suffix == "txt":
         return "text/plain; charset=utf-8"
     return "application/octet-stream"
+
+
+OFFICE_PREVIEW_SUFFIXES = {".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
+
+
+def _is_office_previewable(filename: str) -> bool:
+    return Path(filename).suffix.lower() in OFFICE_PREVIEW_SUFFIXES
+
+
+def _office_preview_kind(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix in {".doc", ".docx"}:
+        return "Word"
+    if suffix in {".xls", ".xlsx"}:
+        return "Excel"
+    if suffix in {".ppt", ".pptx"}:
+        return "PowerPoint"
+    return "Office"
+
+
+def _office_preview_url(source_url: str) -> str:
+    return f"https://view.officeapps.live.com/op/embed.aspx?src={quote(source_url, safe='')}"
+
+
+def _preview_html(
+    *,
+    title: str,
+    filename: str,
+    download_url: str,
+    preview_url: str | None = None,
+    preview_note: str | None = None,
+) -> HTMLResponse:
+    escaped_title = escape(title, quote=True)
+    escaped_filename = escape(filename, quote=True)
+    escaped_download_url = escape(download_url, quote=True)
+    escaped_preview_url = escape(preview_url, quote=True) if preview_url else ""
+    preview_markup = (
+        f'<iframe class="document-preview__frame" src="{escaped_preview_url}" title="Forhåndsvisning av {escaped_filename}" loading="lazy"></iframe>'
+        if preview_url
+        else ""
+    )
+    preview_message = escape(preview_note or "Forhåndsvisningen vises i nettleseren hvis filen er tilgjengelig via en offentlig URL.", quote=True)
+    html = f"""<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{escaped_title}</title>
+    <style>
+      :root {{
+        color-scheme: light;
+        --bg: #f5f1e8;
+        --surface: #ffffff;
+        --surface-muted: #f7f4ee;
+        --border: #d8d0c2;
+        --text: #1d2733;
+        --muted: #586575;
+        --accent: #1f5ef2;
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(180deg, #f6f2ea 0%, #ede7db 100%);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }}
+      .shell {{
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }}
+      .header,
+      .footer {{
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 1.25rem;
+      }}
+      .footer {{
+        border-bottom: 0;
+        border-top: 1px solid var(--border);
+      }}
+      .eyebrow {{
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-bottom: 0.35rem;
+      }}
+      h1 {{
+        font-size: 1.1rem;
+        margin: 0;
+      }}
+      .meta {{
+        margin-top: 0.4rem;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }}
+      .body {{
+        flex: 1;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 1rem;
+        padding: 1rem;
+      }}
+      .note {{
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 0.9rem 1rem;
+        color: var(--muted);
+        line-height: 1.45;
+      }}
+      .viewer {{
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        overflow: hidden;
+        min-height: 70vh;
+        box-shadow: 0 18px 42px rgba(31, 41, 55, 0.08);
+      }}
+      .document-preview__frame {{
+        width: 100%;
+        height: 100%;
+        min-height: 70vh;
+        border: 0;
+        display: block;
+        background: #fff;
+      }}
+      .actions {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }}
+      .button {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        padding: 0.75rem 1rem;
+        text-decoration: none;
+        font-weight: 600;
+      }}
+      .button--secondary {{
+        background: transparent;
+        color: var(--text);
+        border-color: var(--border);
+      }}
+      .fallback {{
+        color: var(--muted);
+        font-size: 0.92rem;
+      }}
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div class="eyebrow">{escape(_office_preview_kind(filename), quote=True)}</div>
+        <h1>{escaped_filename}</h1>
+        <div class="meta">Åpnes i forhåndsvisning i nettleseren. Last ned hvis du vil lagre en lokal kopi.</div>
+      </header>
+      <div class="body">
+        <div class="note">{preview_message}</div>
+        <section class="viewer" aria-label="Forhåndsvisning">
+          {preview_markup}
+        </section>
+        <div class="note">
+          <div class="actions">
+            <a class="button" href="{escaped_download_url}">Last ned</a>
+            <a class="button button--secondary" href="{escaped_download_url}" target="_blank" rel="noreferrer">Åpne nedlasting</a>
+          </div>
+          <div class="fallback">Hvis dokumentet ikke vises her, er det som oftest fordi preview-URLen ikke er offentlig tilgjengelig. Da kan du bruke Last ned.</div>
+        </div>
+      </div>
+      <footer class="footer">
+        <div class="meta">Nexus skiller nå mellom forhåndsvisning og nedlasting.</div>
+      </footer>
+    </main>
+  </body>
+</html>"""
+    return HTMLResponse(content=html)
 
 
 _FORM_NAME_RE = re.compile(r'name="([^"]+)"')
@@ -171,8 +376,21 @@ def get_reports(project_name: str, service: ApplianceService = Depends(get_servi
 
 
 @router.get("/projects/{project_name}/reports/{report_id}/open")
-def open_report(project_name: str, report_id: str, service: ApplianceService = Depends(get_service)) -> FileResponse:
+def open_report(
+    project_name: str,
+    report_id: str,
+    request: Request,
+    service: ApplianceService = Depends(get_service),
+) -> Response:
     report = service.open_report(project_name, report_id)
+    download_url = str(request.url_for("download_report", project_name=project_name, report_id=report_id))
+    if _is_office_previewable(report.report_name):
+        return _preview_html(
+            title=f"Forhåndsvisning av {report.report_name}",
+            filename=report.report_name,
+            download_url=download_url,
+            preview_url=_office_preview_url(download_url),
+        )
     return FileResponse(
         report.report_path,
         filename=report.report_name,
@@ -210,10 +428,19 @@ def _open_content_disposition(filename: str) -> str:
 @router.get("/projects/{project_name}/files/open")
 def open_file(
     project_name: str,
+    request: Request,
     path: str = Query(..., min_length=1),
     service: ApplianceService = Depends(get_service),
-) -> FileResponse:
+) -> Response:
     file_path, filename = service.resolve_project_file(project_name, path)
+    download_url = str(request.url_for("download_file", project_name=project_name).include_query_params(path=path))
+    if _is_office_previewable(filename):
+        return _preview_html(
+            title=f"Forhåndsvisning av {filename}",
+            filename=filename,
+            download_url=download_url,
+            preview_url=_office_preview_url(download_url),
+        )
     return FileResponse(
         file_path,
         filename=filename,

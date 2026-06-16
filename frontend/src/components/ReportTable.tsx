@@ -74,12 +74,12 @@ export function ReportTable({ reports }: ReportTableProps) {
                   {report.open_url || report.download_url ? (
                     <div className="table-actions">
                       {report.open_url ? (
-                        <a className="button button--subtle" href={report.open_url} target="_blank" rel="noreferrer">
+                        <a className="button button--subtle" href={report.open_url} target="_blank" rel="noopener noreferrer">
                           Åpne
                         </a>
                       ) : null}
                       {report.download_url ? (
-                        <a className="button button--subtle" href={report.download_url}>
+                        <a className="button button--subtle" href={report.download_url} download>
                           Last ned
                         </a>
                       ) : null}

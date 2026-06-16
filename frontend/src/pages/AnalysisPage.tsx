@@ -5,6 +5,7 @@ import { ProjectTable } from "../components/ProjectTable";
 import { StatusPill } from "../components/StatusPill";
 import { useAppData } from "../context/AppDataContext";
 import { ApiRequestError, formatDateTime, getAnalysisStatus, runAnalysis } from "../lib/api";
+import { APPLIANCE_BUSY_MESSAGE, getVisibleAnalysisErrorMessage, isLockBusyError } from "../lib/applianceStatus";
 import type { ProjectViewModel } from "../lib/projects";
 import type { AnalysisStatusResponse } from "../types";
 
@@ -111,6 +112,10 @@ export function AnalysisPage() {
         email_mode: selectedEmailMode,
       });
       setAnalysisStatus((current) => ({
+        process_alive: true,
+        lock_exists: true,
+        lock_stale: false,
+        activity: "analysis",
         running: response.running,
         job_id: response.job_id,
         last_started_at: response.started_at,
@@ -132,7 +137,7 @@ export function AnalysisPage() {
       refresh();
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 503) {
-        setAnalysisMessage(error.message);
+        setAnalysisMessage(error.message === APPLIANCE_BUSY_MESSAGE ? APPLIANCE_BUSY_MESSAGE : error.message);
       } else {
         setAnalysisMessage(error instanceof Error ? error.message : "Kunne ikke starte analyse.");
       }
@@ -221,8 +226,14 @@ export function AnalysisPage() {
         {healthError ? <div className="inline-note inline-note--error">{healthError}</div> : null}
         {analysisStatusLoading ? <div className="inline-note">Laster analyse-status ...</div> : null}
         {analysisStatusError ? <div className="inline-note inline-note--error">{analysisStatusError}</div> : null}
-        {analysisStatus?.last_error ? <div className="inline-note inline-note--error">Siste analysefeil: {analysisStatus.last_error}</div> : null}
-        {analysisMessage ? <div className="inline-note">{analysisMessage}</div> : null}
+        {getVisibleAnalysisErrorMessage(analysisStatus?.last_error) ? (
+          <div className={analysisStatus?.last_error && isLockBusyError(analysisStatus.last_error) ? "inline-note inline-note--warning" : "inline-note inline-note--error"}>
+            {getVisibleAnalysisErrorMessage(analysisStatus?.last_error)}
+          </div>
+        ) : null}
+        {analysisMessage ? (
+          <div className={analysisMessage === APPLIANCE_BUSY_MESSAGE ? "inline-note inline-note--warning" : "inline-note"}>{analysisMessage}</div>
+        ) : null}
       </section>
 
       <section className="surface surface--padded">

@@ -14,6 +14,7 @@ import httpx
 
 from backend.app.config import ApplianceSettings
 from backend.app.main import create_app
+from backend.app.services.appliance import APPLIANCE_BUSY_MESSAGE, AnalysisJobState, SyncJobState
 
 
 class _AsyncAppClient:
@@ -370,6 +371,7 @@ def _build_versioned_comment_appliance_root(
     history_versions: list[str] | None = None,
     include_output_report: bool = False,
     include_comment_base_report: bool = False,
+    extra_source_files: dict[str, bytes] | None = None,
 ) -> Path:
     appliance_root = tmp_path / "appliance"
     runtime_root = appliance_root / ".riveanbud_runtime" / "rive-anbud-appliance" / "Urban_Reuse_Norway"
@@ -392,10 +394,15 @@ def _build_versioned_comment_appliance_root(
     ]:
         (project_root / folder).mkdir(parents=True, exist_ok=True)
 
+    base_time = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
     _write_file(project_root / "Anbud" / "tilbud.txt", b"tender", modified_at=datetime(2026, 6, 1, 8, 0, tzinfo=timezone.utc))
     _write_file(project_root / "Bakgrunnsdokumenter" / "bakgrunn.pdf", b"background", modified_at=datetime(2026, 6, 1, 8, 5, tzinfo=timezone.utc))
-
-    base_time = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
+    for index, (relative_path, content) in enumerate((extra_source_files or {}).items(), start=1):
+        _write_file(
+            project_root / relative_path,
+            content,
+            modified_at=base_time + timedelta(minutes=30 + index),
+        )
     for index, version in enumerate(versions):
         _write_file(
             comments_root / f"{project_name} - Kommentardokument - {version}.docx",
@@ -912,12 +919,10 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
 
     latest_open = client.get("/api/projects/Alpha%20Project/reports/latest/open")
     assert latest_open.status_code == 200
-    assert latest_open.content == b"newer-docx"
-    content_disposition = latest_open.headers["content-disposition"]
-    assert "Alpha Project - Kommentardokument - 1.0.docx" in content_disposition or "Alpha%20Project%20-%20Kommentardokument%20-%201.0.docx" in content_disposition
-    assert "/home/" not in content_disposition
-    assert ".riveanbud_runtime" not in content_disposition
-    assert "outputs" not in content_disposition
+    assert latest_open.headers["content-type"].startswith("text/html")
+    assert "view.officeapps.live.com/op/embed.aspx?src=" in latest_open.text
+    assert "Last ned" in latest_open.text
+    assert "Alpha Project - Kommentardokument - 1.0.docx" in latest_open.text
 
     invalid_open = client.get("/api/projects/Alpha%20Project/reports/99/open")
     assert invalid_open.status_code == 404
@@ -969,6 +974,52 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
     assert debug_payload["comment_documents_found"] == 2
     assert debug_payload["ignored_file_count"] == 2
     assert "Kommentarer folders are excluded from source file counts." in debug_payload["ignored_reasons"]
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "expected_mode"),
+    [
+        ("Dokumenter/rapport.docx", "office"),
+        ("Dokumenter/ark.xlsx", "office"),
+        ("Dokumenter/ark.xls", "office"),
+        ("Dokumenter/slides.pptx", "office"),
+        ("Dokumenter/slides.ppt", "office"),
+        ("Dokumenter/oversikt.pdf", "pdf"),
+    ],
+)
+def test_open_file_uses_preview_for_office_documents_and_keeps_download(tmp_path: Path, relative_path: str, expected_mode: str) -> None:
+    appliance_root = _build_versioned_comment_appliance_root(
+        tmp_path,
+        project_name="Preview Prosjekt",
+        versions=["1.0"],
+        extra_source_files={
+            "Dokumenter/rapport.docx": b"docx-bytes",
+            "Dokumenter/ark.xlsx": b"xlsx-bytes",
+            "Dokumenter/ark.xls": b"xls-bytes",
+            "Dokumenter/slides.pptx": b"pptx-bytes",
+            "Dokumenter/slides.ppt": b"ppt-bytes",
+            "Dokumenter/oversikt.pdf": b"pdf-bytes",
+        },
+    )
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+    project = _project_path("Preview Prosjekt")
+    encoded_path = quote(relative_path, safe="")
+
+    open_response = client.get(f"/api/projects/{project}/files/open?path={encoded_path}")
+    download_response = client.get(f"/api/projects/{project}/files/download?path={encoded_path}")
+
+    assert download_response.status_code == 200
+    assert "attachment" in download_response.headers["content-disposition"]
+
+    assert open_response.status_code == 200
+    if expected_mode == "office":
+        assert open_response.headers["content-type"].startswith("text/html")
+        assert "view.officeapps.live.com/op/embed.aspx?src=" in open_response.text
+        assert "Last ned" in open_response.text
+        assert "Åpne nedlasting" in open_response.text
+    else:
+        assert open_response.headers["content-type"].startswith("application/pdf")
+        assert "inline" in open_response.headers["content-disposition"]
 
 
 def test_versioned_comment_documents_are_all_detected_and_sorted_by_created_at(tmp_path: Path) -> None:
@@ -1058,8 +1109,10 @@ def test_versioned_comment_documents_ignore_history_and_outputs_duplicates(tmp_p
 
     latest_open = client.get("/api/projects/TestProsjekt%231/reports/latest/open")
     assert latest_open.status_code == 200
-    assert latest_open.content == b"version-6.0"
-    assert "TestProsjekt%231%20-%20Kommentardokument%20-%206.0.docx" in latest_open.headers["content-disposition"] or "TestProsjekt#1 - Kommentardokument - 6.0.docx" in latest_open.headers["content-disposition"]
+    assert latest_open.headers["content-type"].startswith("text/html")
+    assert "view.officeapps.live.com/op/embed.aspx?src=" in latest_open.text
+    assert "Last ned" in latest_open.text
+    assert "TestProsjekt#1 - Kommentardokument - 6.0.docx" in latest_open.text
 
 
 def test_project_write_operations_use_project_relative_paths(tmp_path: Path) -> None:
@@ -1633,6 +1686,145 @@ def test_sync_endpoint_starts_sync_only_nonblocking_job(monkeypatch: pytest.Monk
     assert status_payload["status"] in {"running", "completed"}
 
 
+def test_sync_endpoint_returns_busy_when_analysis_is_active(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+
+    class DummyProcess:
+        def poll(self) -> int | None:
+            return None
+
+    service._analysis_state = AnalysisJobState(
+        running=True,
+        job_id="analysis-job",
+        process=DummyProcess(),
+        last_started_at=datetime(2026, 6, 12, 8, 0, tzinfo=timezone.utc),
+        last_completed_at=None,
+        last_error=None,
+        projects_synced=0,
+        files_changed=0,
+        reports_found=0,
+        reports_generated=0,
+        email_mode="daily_digest",
+        project_name="Bryn Skole",
+        status="running",
+    )
+    client = _AsyncAppClient(app)
+
+    response = client.post("/api/sync/run")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["code"] == "appliance_busy"
+    assert payload["detail"] == APPLIANCE_BUSY_MESSAGE
+
+
+def test_sync_endpoint_returns_busy_when_history_lock_is_live(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    runtime_root = appliance_root / ".riveanbud_runtime"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    lock_path = runtime_root / "onedrive_sync_history.lock"
+    lock_path.write_text(
+        json.dumps(
+            {
+                "pid": 424242,
+                "created_at": datetime(2026, 6, 12, 8, 0, tzinfo=timezone.utc).isoformat(),
+                "lock_path": str(lock_path),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(service, "_process_cmdline", lambda pid: "/home/anbudklient/appliance/.venv/bin/python /home/anbudklient/appliance/scripts/run_onedrive_appliance.py --once --all-roots --sync-only --company-root AnbudAppliance/Urban_Reuse_Norway")
+    client = _AsyncAppClient(app)
+
+    response = client.post("/api/sync/run")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["code"] == "appliance_busy"
+    assert payload["detail"] == APPLIANCE_BUSY_MESSAGE
+
+
+def test_sync_status_clears_stale_lock_error_when_process_is_not_running(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    service._sync_state = SyncJobState(
+        running=False,
+        job_id="sync-job",
+        last_started_at=datetime(2026, 6, 12, 8, 0, tzinfo=timezone.utc),
+        last_completed_at=datetime(2026, 6, 12, 8, 5, tzinfo=timezone.utc),
+        last_error="Awaiting history lock while waiting for onedrive_sync_history.lock to clear.",
+        projects_synced=3,
+        files_changed=2,
+        reports_found=1,
+        status="failed",
+    )
+    client = _AsyncAppClient(app)
+
+    response = client.get("/api/sync/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["running"] is False
+    assert payload["status"] == "idle"
+    assert payload["last_error"] is None
+    assert payload["job_id"] == "sync-job"
+    assert payload["process_alive"] is False
+    assert payload["lock_exists"] is False
+    assert payload["lock_stale"] is False
+    assert payload["activity"] == "idle"
+
+
+def test_sync_status_removes_stale_history_lock_file(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    runtime_root = appliance_root / ".riveanbud_runtime"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    lock_path = runtime_root / "onedrive_sync_history.lock"
+    lock_path.write_text(
+        json.dumps(
+            {
+                "pid": 999999,
+                "created_at": datetime(2026, 6, 12, 8, 0, tzinfo=timezone.utc).isoformat(),
+                "lock_path": str(lock_path),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    service._sync_state = SyncJobState(
+        running=False,
+        job_id="sync-job",
+        last_started_at=datetime(2026, 6, 12, 8, 0, tzinfo=timezone.utc),
+        last_completed_at=datetime(2026, 6, 12, 8, 5, tzinfo=timezone.utc),
+        last_error="Awaiting history lock while waiting for onedrive_sync_history.lock to clear.",
+        projects_synced=3,
+        files_changed=2,
+        reports_found=1,
+        status="failed",
+    )
+    client = _AsyncAppClient(app)
+
+    response = client.get("/api/sync/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["running"] is False
+    assert payload["status"] == "idle"
+    assert payload["last_error"] is None
+    assert payload["lock_stale"] is True
+    assert payload["lock_exists"] is False
+    assert payload["activity"] == "idle"
+    assert not lock_path.exists()
+
+
 def test_sync_endpoint_fails_safely_when_sync_only_is_unavailable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     appliance_root = tmp_path / "appliance"
     script_path = appliance_root / "scripts" / "run_onedrive_appliance.py"
@@ -1756,6 +1948,40 @@ def test_analysis_endpoint_starts_full_pipeline_for_selected_project(monkeypatch
     assert status_payload["reports_found"] == 1
     assert status_payload["email_mode"] == "immediate"
     assert status_payload["project_name"] == "Bryn Skole"
+
+
+def test_analysis_status_clears_stale_lock_error_when_process_is_not_running(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    service._analysis_state = AnalysisJobState(
+        running=False,
+        job_id="analysis-job",
+        last_started_at=datetime(2026, 6, 12, 8, 0, tzinfo=timezone.utc),
+        last_completed_at=datetime(2026, 6, 12, 8, 5, tzinfo=timezone.utc),
+        last_error="Waiting for history lock while onedrive_lightweight_state.sqlite3 clears.",
+        projects_synced=4,
+        files_changed=6,
+        reports_found=3,
+        reports_generated=2,
+        email_mode="daily_digest",
+        project_name="Bryn Skole",
+        status="failed",
+    )
+    client = _AsyncAppClient(app)
+
+    response = client.get("/api/analysis/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["running"] is False
+    assert payload["status"] == "idle"
+    assert payload["last_error"] is None
+    assert payload["job_id"] == "analysis-job"
+    assert payload["process_alive"] is False
+    assert payload["lock_exists"] is False
+    assert payload["lock_stale"] is False
+    assert payload["activity"] == "idle"
 
 
 def test_analysis_endpoint_fails_safely_when_full_pipeline_is_unavailable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

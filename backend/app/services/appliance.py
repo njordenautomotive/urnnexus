@@ -81,6 +81,13 @@ SOURCE_CATEGORY_BY_FOLDER: dict[str, str] = {
 _VERSION_RE = re.compile(r"^\s*version\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 _REPORT_VERSION_SUFFIX_RE = re.compile(r"(?:^|[\s_-])(?:v|versjon|version|rev|r)?\s*(\d+(?:\.\d+)*)\s*$", re.IGNORECASE)
 _COMMENT_DOCUMENT_REPORT_RE = re.compile(r"(?i)\bkommentardokument\b(?:\s*[-_]\s*\d+(?:\.\d+)*)?\s*$")
+_LOCK_BUSY_ERROR_PATTERNS = (
+    "awaiting history lock",
+    "waiting for history lock",
+    "onedrive_sync_history.lock",
+    "onedrive_lightweight_state.sqlite3",
+)
+APPLIANCE_BUSY_MESSAGE = "Appliance arbeider. Synk kan startes når aktiv jobb er ferdig."
 
 
 class ApplianceServiceError(RuntimeError):
@@ -109,6 +116,10 @@ class ProjectFileNotFoundError(ApplianceServiceError):
 
 class ProjectWriteError(ApplianceServiceError):
     """Raised when a project write operation cannot be completed."""
+
+
+class ApplianceBusyError(ApplianceServiceError):
+    """Raised when a live sync or analysis job is already active."""
 
 
 class OneDriveGraphWriteUnavailableError(ApplianceServiceError):
@@ -507,6 +518,22 @@ class AnalysisJobState:
     status: str = "idle"
 
 
+@dataclass(slots=True)
+class RuntimeActivitySnapshot:
+    sync_running: bool = False
+    analysis_running: bool = False
+    lock_exists: bool = False
+    lock_stale: bool = False
+
+    @property
+    def activity(self) -> str:
+        if self.sync_running:
+            return "sync"
+        if self.analysis_running:
+            return "analysis"
+        return "idle"
+
+
 def _normalize_name(value: str) -> str:
     return value.strip().casefold()
 
@@ -744,6 +771,13 @@ def _file_created_at(stat_result: os.stat_result) -> datetime:
         return datetime.fromtimestamp(ctime, tz=OSLO_TIMEZONE)
 
     return datetime.fromtimestamp(getattr(stat_result, "st_mtime", 0), tz=OSLO_TIMEZONE)
+
+
+def _is_lock_busy_error(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = message.casefold()
+    return any(pattern in lowered for pattern in _LOCK_BUSY_ERROR_PATTERNS)
 
 
 class ApplianceService:
@@ -1206,22 +1240,13 @@ class ApplianceService:
             raise ProjectSyncError(f"OneDrive-sync feilet etter prosjektopprettelse: {detail}")
 
     def start_sync(self) -> SyncRunResponse:
-        self._require_sync_only_available()
-        with self._sync_lock:
-            self._refresh_sync_state_locked()
-            if self._sync_state.running and self._sync_state.job_id and self._sync_state.last_started_at:
-                return SyncRunResponse(
-                    job_id=self._sync_state.job_id,
-                    running=True,
-                    started_at=self._sync_state.last_started_at,
-                    status="already_running",
-                    sync_only=True,
-                    analysis_started=False,
-                    reports_generated=0,
-                    projects_synced=self._sync_state.projects_synced,
-                    files_changed=self._sync_state.files_changed,
-                    reports_found=self._sync_state.reports_found,
-                )
+        with self._sync_lock, self._analysis_lock:
+            snapshot = self._runtime_activity_snapshot_locked()
+            self._refresh_sync_state_locked(snapshot=snapshot)
+            self._refresh_analysis_state_locked(snapshot=snapshot)
+            if snapshot.sync_running or snapshot.analysis_running or snapshot.lock_exists:
+                raise ApplianceBusyError(APPLIANCE_BUSY_MESSAGE)
+            self._require_sync_only_available()
 
             command = self._sync_command()
             self._validate_nexus_sync_command(command)
@@ -1262,26 +1287,16 @@ class ApplianceService:
             )
 
     def start_analysis(self, project_name: str | None, *, email_mode: str = "daily_digest") -> AnalysisRunResponse:
-        self._require_analysis_available()
         normalized_email_mode = self._normalize_email_mode(email_mode)
         normalized_project_name = self._clean_project_name(project_name) if project_name is not None else None
 
-        with self._analysis_lock:
-            self._refresh_analysis_state_locked()
-            if self._analysis_state.running and self._analysis_state.job_id and self._analysis_state.last_started_at:
-                return AnalysisRunResponse(
-                    job_id=self._analysis_state.job_id,
-                    running=True,
-                    started_at=self._analysis_state.last_started_at,
-                    status="already_running",
-                    analysis_started=True,
-                    reports_generated=self._analysis_state.reports_generated,
-                    projects_synced=self._analysis_state.projects_synced,
-                    files_changed=self._analysis_state.files_changed,
-                    reports_found=self._analysis_state.reports_found,
-                    email_mode=self._analysis_state.email_mode or normalized_email_mode,
-                    project_name=self._analysis_state.project_name or normalized_project_name,
-                )
+        with self._sync_lock, self._analysis_lock:
+            snapshot = self._runtime_activity_snapshot_locked()
+            self._refresh_sync_state_locked(snapshot=snapshot)
+            self._refresh_analysis_state_locked(snapshot=snapshot)
+            if snapshot.sync_running or snapshot.analysis_running or snapshot.lock_exists:
+                raise ApplianceBusyError(APPLIANCE_BUSY_MESSAGE)
+            self._require_analysis_available()
 
             command = self._analysis_command(project_name=normalized_project_name, email_mode=normalized_email_mode)
             self._validate_nexus_analysis_command(command)
@@ -1325,10 +1340,16 @@ class ApplianceService:
             )
 
     def sync_status(self) -> SyncStatusResponse:
-        with self._sync_lock:
-            self._refresh_sync_state_locked()
+        with self._sync_lock, self._analysis_lock:
+            snapshot = self._runtime_activity_snapshot_locked()
+            self._refresh_sync_state_locked(snapshot=snapshot)
+            self._clear_stale_lock_error(self._sync_state, label="sync")
             return SyncStatusResponse(
-                running=self._sync_state.running,
+                running=snapshot.sync_running,
+                process_alive=snapshot.sync_running,
+                lock_exists=snapshot.lock_exists,
+                lock_stale=snapshot.lock_stale,
+                activity=snapshot.activity,
                 job_id=self._sync_state.job_id,
                 last_started_at=self._sync_state.last_started_at,
                 last_completed_at=self._sync_state.last_completed_at,
@@ -1340,10 +1361,16 @@ class ApplianceService:
             )
 
     def analysis_status(self) -> AnalysisStatusResponse:
-        with self._analysis_lock:
-            self._refresh_analysis_state_locked()
+        with self._sync_lock, self._analysis_lock:
+            snapshot = self._runtime_activity_snapshot_locked()
+            self._refresh_analysis_state_locked(snapshot=snapshot)
+            self._clear_stale_lock_error(self._analysis_state, label="analysis")
             return AnalysisStatusResponse(
-                running=self._analysis_state.running,
+                running=snapshot.analysis_running,
+                process_alive=snapshot.analysis_running,
+                lock_exists=snapshot.lock_exists,
+                lock_stale=snapshot.lock_stale,
+                activity=snapshot.activity,
                 job_id=self._analysis_state.job_id,
                 last_started_at=self._analysis_state.last_started_at,
                 last_completed_at=self._analysis_state.last_completed_at,
@@ -1355,8 +1382,106 @@ class ApplianceService:
                 email_mode=self._analysis_state.email_mode,
                 project_name=self._analysis_state.project_name,
                 status=self._analysis_state.status,
-                analysis_started=self._analysis_state.running,
+                analysis_started=snapshot.analysis_running,
             )
+
+    def _clear_stale_lock_error(self, state: SyncJobState | AnalysisJobState, *, label: str) -> None:
+        if state.running or not _is_lock_busy_error(state.last_error):
+            return
+        logger.warning("Clearing stale %s lock error from status: %s", label, state.last_error)
+        state.last_error = None
+        state.status = "idle"
+
+    def _runtime_history_lock_paths(self) -> list[Path]:
+        return list(
+            dict.fromkeys(
+                runtime_root / "onedrive_sync_history.lock"
+                for runtime_root in self.settings.runtime_roots()
+            )
+        )
+
+    def _runtime_lock_pid(self, lock_path: Path) -> int | None:
+        try:
+            payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        pid_value = payload.get("pid") if isinstance(payload, dict) else None
+        try:
+            pid = int(pid_value)
+        except Exception:
+            return None
+        return pid if pid > 0 else None
+
+    def _process_cmdline(self, pid: int) -> str | None:
+        cmdline_path = Path("/proc") / str(pid) / "cmdline"
+        try:
+            raw = cmdline_path.read_bytes()
+        except Exception:
+            return None
+        text = raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+        return text or None
+
+    def _activity_from_cmdline(self, cmdline: str | None) -> str:
+        if not cmdline:
+            return "idle"
+        lowered = cmdline.casefold()
+        if "--sync-only" in lowered:
+            return "sync"
+        if "--force-analyze" in lowered or "analyze_project.py" in lowered:
+            return "analysis"
+        if "run_onedrive_appliance.py" in lowered:
+            return "analysis" if "--force-analyze" in lowered else "sync" if "--sync-only" in lowered else "analysis"
+        return "idle"
+
+    def _runtime_activity_snapshot_locked(self) -> RuntimeActivitySnapshot:
+        snapshot = RuntimeActivitySnapshot(
+            sync_running=self._is_process_active(self._sync_state.process),
+            analysis_running=self._is_process_active(self._analysis_state.process),
+        )
+
+        for lock_path in self._runtime_history_lock_paths():
+            if not lock_path.exists():
+                continue
+
+            pid = self._runtime_lock_pid(lock_path)
+            if pid is not None and self._is_pid_alive(pid):
+                snapshot.lock_exists = True
+                if not snapshot.sync_running and not snapshot.analysis_running:
+                    inferred_activity = self._activity_from_cmdline(self._process_cmdline(pid))
+                    if inferred_activity == "sync":
+                        snapshot.sync_running = True
+                    elif inferred_activity == "analysis":
+                        snapshot.analysis_running = True
+                continue
+
+            snapshot.lock_stale = True
+            logger.warning("Removing stale history lock: %s", lock_path)
+            try:
+                lock_path.unlink(missing_ok=True)
+            except Exception as exc:
+                logger.warning("Unable to remove stale history lock %s: %s", lock_path, exc)
+
+        snapshot.lock_exists = snapshot.lock_exists or snapshot.sync_running or snapshot.analysis_running
+        return snapshot
+
+    def _is_pid_alive(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
+        return True
+
+    def _is_process_active(self, process: subprocess.Popen[str] | None) -> bool:
+        if process is None:
+            return False
+        try:
+            return process.poll() is None
+        except Exception:
+            return False
 
     def debug_paths(self, project_name: str) -> ProjectDebugPathsResponse:
         normalized = _normalize_name(project_name)
@@ -3255,21 +3380,31 @@ class ApplianceService:
             if flag in command_values:
                 raise AnalysisUnavailableError(f"Nexus analysekommando inneholder forbudt flagg: {flag}")
 
-    def _refresh_sync_state_locked(self) -> None:
+    def _refresh_sync_state_locked(self, *, snapshot: RuntimeActivitySnapshot | None = None) -> None:
+        snapshot = snapshot or self._runtime_activity_snapshot_locked()
         process = self._sync_state.process
-        if process is None or not self._sync_state.running:
+        self._sync_state.running = snapshot.sync_running
+        if snapshot.sync_running:
+            self._sync_state.status = "running"
             return
-        if process.poll() is None:
+        if process is None:
+            if self._sync_state.status == "running":
+                self._sync_state.status = "idle"
             return
         self._sync_state.running = False
         if self._sync_state.status == "running":
             self._sync_state.status = "completed" if process.returncode == 0 else "failed"
 
-    def _refresh_analysis_state_locked(self) -> None:
+    def _refresh_analysis_state_locked(self, *, snapshot: RuntimeActivitySnapshot | None = None) -> None:
+        snapshot = snapshot or self._runtime_activity_snapshot_locked()
         process = self._analysis_state.process
-        if process is None or not self._analysis_state.running:
+        self._analysis_state.running = snapshot.analysis_running
+        if snapshot.analysis_running:
+            self._analysis_state.status = "running"
             return
-        if process.poll() is None:
+        if process is None:
+            if self._analysis_state.status == "running":
+                self._analysis_state.status = "idle"
             return
         self._analysis_state.running = False
         if self._analysis_state.status == "running":

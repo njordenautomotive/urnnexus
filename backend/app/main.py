@@ -12,6 +12,7 @@ from backend.app.config import ApplianceSettings
 from backend.app.models.common import ApiError
 from backend.app.services.appliance import (
     ApplianceService,
+    ApplianceBusyError,
     ApplianceUnavailableError,
     AnalysisUnavailableError,
     OneDriveGraphWriteUnavailableError,
@@ -74,6 +75,10 @@ def create_app(settings: ApplianceSettings | None = None, *, onedrive_writer: On
     @app.exception_handler(OneDriveGraphWriteUnavailableError)
     async def graph_write_unavailable_handler(_: Request, exc: OneDriveGraphWriteUnavailableError) -> JSONResponse:
         return JSONResponse(status_code=503, content=ApiError(code="graph_write_unavailable", detail=str(exc)).model_dump(mode="json"))
+
+    @app.exception_handler(ApplianceBusyError)
+    async def appliance_busy_handler(_: Request, exc: ApplianceBusyError) -> JSONResponse:
+        return JSONResponse(status_code=503, content=ApiError(code="appliance_busy", detail=str(exc)).model_dump(mode="json"))
 
     @app.exception_handler(ProjectSyncError)
     async def project_sync_error_handler(_: Request, exc: ProjectSyncError) -> JSONResponse:

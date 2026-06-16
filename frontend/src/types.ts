@@ -249,6 +249,10 @@ export interface SyncRunResponse {
 
 export interface SyncStatusResponse {
   running: boolean;
+  process_alive: boolean;
+  lock_exists: boolean;
+  lock_stale: boolean;
+  activity: "sync" | "analysis" | "idle";
   job_id: string | null;
   last_started_at: string | null;
   last_completed_at: string | null;
@@ -280,6 +284,10 @@ export interface AnalysisRunResponse {
 
 export interface AnalysisStatusResponse {
   running: boolean;
+  process_alive: boolean;
+  lock_exists: boolean;
+  lock_stale: boolean;
+  activity: "sync" | "analysis" | "idle";
   job_id: string | null;
   last_started_at: string | null;
   last_completed_at: string | null;
