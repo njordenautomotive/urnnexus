@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AppHeader } from "../components/Layout";
 import { ErrorState } from "../components/ErrorState";
 import { ProjectTable } from "../components/ProjectTable";
@@ -45,14 +45,25 @@ export function AnalysisPage() {
     : graphWriteReady
       ? null
       : health?.graph_write_detail ?? "Microsoft Graph-write er ikke konfigurert.";
-  const analysisPillStatus = analysisStatus?.running ? "RUNNING" : analysisStatus?.status === "failed" ? "failed" : analysisStatus?.last_completed_at ? "completed" : "idle";
-  const analysisPillLabel = analysisStatus?.running
-    ? "Analyse pågår"
-    : analysisStatus?.status === "failed"
-      ? "Analyse feilet"
-      : analysisStatus?.last_completed_at
-        ? "Analyse fullført"
-        : "Klar";
+  const analysisPillStatus = analysisStatusLoading && !analysisStatus ? "loading" : analysisStatus?.running ? "RUNNING" : analysisStatus?.status === "failed" ? "failed" : analysisStatus?.last_completed_at ? "completed" : "idle";
+  const analysisPillLabel = analysisStatusLoading && !analysisStatus
+    ? "Laster"
+    : analysisStatus?.running
+      ? "Analyse pågår"
+      : analysisStatus?.status === "failed"
+        ? "Analyse feilet"
+        : analysisStatus?.last_completed_at
+          ? "Analyse fullført"
+          : "Klar";
+  const analysisLastError = getVisibleAnalysisErrorMessage(analysisStatus?.last_error);
+  const analysisFailureMessage = analysisStatus?.status === "failed" ? analysisLastError ?? "Siste analyse endte med feil." : analysisLastError;
+  const analysisLastErrorTone = analysisStatus?.last_error && isLockBusyError(analysisStatus.last_error) ? "warning" : "danger";
+  const analysisMessageTone =
+    analysisMessage === APPLIANCE_BUSY_MESSAGE
+      ? "warning"
+      : analysisMessage?.toLowerCase().includes("kunne ikke") || analysisMessage?.toLowerCase().includes("feil")
+        ? "danger"
+        : "info";
   const visibleProjects = projects;
 
   useEffect(() => {
@@ -157,49 +168,61 @@ export function AnalysisPage() {
           title="Analyse"
           description=""
         />
-        <section className="surface surface--padded">
+        <section className="dashboard-card dashboard-card--padded">
           <div className="loading-copy">Laster prosjekter ...</div>
         </section>
       </div>
     );
   }
 
-  const analysisSummary = [
+  const analysisKpis = [
     {
       label: "Status",
       value: <StatusPill status={analysisPillStatus} label={analysisPillLabel} />,
+      hint: analysisStatusLoading && !analysisStatus
+        ? "Henter status fra appliance."
+        : analysisStatus?.running
+          ? "Analyse kjører akkurat nå."
+          : analysisStatus?.status === "failed"
+            ? "Siste kjøring feilet."
+            : analysisStatus?.last_completed_at
+              ? "Siste kjøring er ferdig."
+              : "Ingen registrert kjøring.",
     },
     {
       label: "Sist startet",
       value: analysisStatus?.last_started_at ? formatDateTime(analysisStatus.last_started_at) : "—",
+      hint: analysisStatus?.last_started_at ? "Siste registrerte starttidspunkt." : "Ingen starttidspunkt ennå.",
     },
     {
       label: "Sist fullført",
       value: analysisStatus?.last_completed_at ? formatDateTime(analysisStatus.last_completed_at) : "—",
+      hint: analysisStatus?.last_completed_at ? "Siste registrerte fullføring." : "Ingen fullføring ennå.",
     },
     {
       label: "Rapporter generert",
       value: analysisStatus ? analysisStatus.reports_generated.toLocaleString("nb-NO") : "—",
+      hint: analysisStatus ? "Generert av siste analysekjøring." : "Ingen rapporter registrert ennå.",
     },
   ];
 
   return (
-    <div className="page-stack">
+    <div className="page-stack analysis-page">
       <AppHeader
         title="Analyse"
         description=" "
       />
 
-      <section className="surface surface--padded">
-        <div className="section-head">
+      <section className="dashboard-card dashboard-card--padded analysis-hero">
+        <div className="analysis-hero__header">
           <div>
             <div className="section-kicker">Kjøring</div>
             <h2 className="section-title">Start analyse</h2>
           </div>
-          <div className="section-head__actions">
+          <div className="analysis-hero__actions">
             <button
               type="button"
-              className="button analysis-button-danger"
+              className="button button--danger action-button action-button--danger"
               onClick={() => setAnalysisTarget(null)}
               disabled={Boolean(analysisDisabledReason) || visibleProjects.length === 0}
               title={analysisDisabledReason ?? "Start analyse for alle prosjekter"}
@@ -209,40 +232,54 @@ export function AnalysisPage() {
           </div>
         </div>
 
-        <div className="dashboard-summary">
-          {analysisSummary.map((item) => (
-            <div className="dashboard-summary__item" key={item.label}>
-              <span>{item.label}</span>
-              <div className="dashboard-summary__value">{item.value}</div>
-            </div>
+        <div className="analysis-kpi-grid">
+          {analysisKpis.map((item) => (
+            <AnalysisKpiCard key={item.label} label={item.label} value={item.value} hint={item.hint} />
           ))}
         </div>
 
-        <div className="dashboard-summary__note">
-          Velg e-postflyt i dialogen før vi sender jobben til appliance. Analyse kan kun startes herfra.
-        </div>
-
-        {analysisDisabledReason ? <div className="inline-note">{analysisDisabledReason}</div> : null}
-        {healthError ? <div className="inline-note inline-note--error">{healthError}</div> : null}
-        {analysisStatusLoading ? <div className="inline-note">Laster analyse-status ...</div> : null}
-        {analysisStatusError ? <div className="inline-note inline-note--error">{analysisStatusError}</div> : null}
-        {getVisibleAnalysisErrorMessage(analysisStatus?.last_error) ? (
-          <div className={analysisStatus?.last_error && isLockBusyError(analysisStatus.last_error) ? "inline-note inline-note--warning" : "inline-note inline-note--error"}>
-            {getVisibleAnalysisErrorMessage(analysisStatus?.last_error)}
+        <div className="analysis-hero__body">
+          <p className="analysis-hero__note">Velg e-postflyt i dialogen før vi sender jobben til appliance. Analyse kan kun startes herfra.</p>
+          <div className="analysis-alert-stack">
+            {analysisDisabledReason ? (
+              <AnalysisAlert tone="warning" title="Analyse kan ikke startes" message={analysisDisabledReason} />
+            ) : null}
+            {healthError ? <AnalysisAlert tone="danger" title="Helsedata kunne ikke lastes" message={healthError} /> : null}
+            {analysisStatusLoading ? <div className="inline-note inline-note--muted">Laster analyse-status ...</div> : null}
+            {analysisStatusError ? (
+              <AnalysisAlert
+                tone="warning"
+                title="Analyse-status er midlertidig utilgjengelig"
+                message="Vi fikk ikke lest status akkurat nå. Prøver igjen automatisk."
+                detail={analysisStatusError}
+              />
+            ) : null}
+            {analysisFailureMessage ? (
+              <AnalysisAlert
+                tone={analysisLastErrorTone}
+                title={analysisLastErrorTone === "warning" ? "Analyse trenger oppmerksomhet" : "Analyse feilet"}
+                message={analysisFailureMessage}
+                detail={analysisStatus?.last_error ?? (analysisStatus?.status === "failed" ? "Ingen tekniske detaljer registrert." : null)}
+              />
+            ) : null}
+            {analysisMessage ? (
+              <AnalysisAlert
+                tone={analysisMessageTone}
+                title={analysisMessageTone === "danger" ? "Analyse kunne ikke startes" : analysisMessage === APPLIANCE_BUSY_MESSAGE ? "Analyse er opptatt" : "Analyse startet"}
+                message={analysisMessage}
+              />
+            ) : null}
           </div>
-        ) : null}
-        {analysisMessage ? (
-          <div className={analysisMessage === APPLIANCE_BUSY_MESSAGE ? "inline-note inline-note--warning" : "inline-note"}>{analysisMessage}</div>
-        ) : null}
+        </div>
       </section>
 
-      <section className="surface surface--padded">
-        <div className="section-head">
+      <section className="dashboard-card dashboard-card--padded analysis-projects">
+        <div className="analysis-projects__head">
           <div>
-            <div className="section-kicker"> </div>
+            <div className="section-kicker">Prosjekter</div>
             <h2 className="section-title">Velg prosjekt</h2>
           </div>
-          <div className="section-head__note">
+          <div className="analysis-projects__count">
             {visibleProjects.length.toLocaleString("nb-NO")} prosjekter
           </div>
         </div>
@@ -265,6 +302,53 @@ export function AnalysisPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+function AnalysisKpiCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  hint: string;
+}) {
+  const isTextValue = typeof value === "string";
+
+  return (
+    <div className="kpi-card">
+      <div className="kpi-card__label">{label}</div>
+      <div className={`kpi-card__value ${isTextValue ? "kpi-card__value--muted" : ""}`}>{value}</div>
+      <div className="kpi-card__hint">{hint}</div>
+    </div>
+  );
+}
+
+function AnalysisAlert({
+  tone,
+  title,
+  message,
+  detail,
+}: {
+  tone: "info" | "warning" | "danger";
+  title: string;
+  message: string;
+  detail?: string | null;
+}) {
+  return (
+    <article className={`analysis-alert analysis-alert--${tone}`}>
+      <div className="analysis-alert__title">{title}</div>
+      <p className="analysis-alert__message">{message}</p>
+      {detail ? (
+        <details className="analysis-alert__details">
+          <summary className="analysis-alert__summary">Vis tekniske detaljer</summary>
+          <div className="analysis-alert__details-content">
+            <pre className="analysis-alert__code">{detail}</pre>
+          </div>
+        </details>
+      ) : null}
+    </article>
   );
 }
 

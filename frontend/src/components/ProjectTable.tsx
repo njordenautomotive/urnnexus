@@ -29,8 +29,8 @@ export function ProjectTable({
   }
 
   return (
-    <div className={`project-table-wrap ${compact ? "project-table-wrap--compact" : ""}`}>
-      <table className="project-table">
+    <div className={`project-table-wrap data-table-wrap ${compact ? "project-table-wrap--compact" : ""}`}>
+      <table className="project-table data-table">
         <thead>
           <tr>
             <th>Prosjekt</th>
@@ -88,11 +88,11 @@ function ProjectTableRow({
       <td>
         <div className="project-table__actions">
           {onAnalyzeProject ? (
-            <button type="button" className="button analysis-button-danger" onClick={() => onAnalyzeProject(project)}>
+            <button type="button" className="button button--danger" onClick={() => onAnalyzeProject(project)}>
               Analyser
             </button>
           ) : null}
-          <Link className="button button--primary" to={project.projectHref}>
+          <Link className="button button--secondary" to={project.projectHref}>
             Åpne prosjekt
           </Link>
           {onDeleteProject ? (
