@@ -43,6 +43,7 @@ from backend.app.models.project import (
     ProjectReportsResponse,
     ProjectSummary,
 )
+from backend.app.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,6 @@ SOURCE_CATEGORY_BY_FOLDER: dict[str, str] = {
     "tidligere kommunikasjon": "previous_communication",
     "kommentarer": "comments",
 }
-_VERSION_RE = re.compile(r"^\s*version\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 _REPORT_VERSION_SUFFIX_RE = re.compile(r"(?:^|[\s_-])(?:v|versjon|version|rev|r)?\s*(\d+(?:\.\d+)*)\s*$", re.IGNORECASE)
 _COMMENT_DOCUMENT_REPORT_RE = re.compile(r"(?i)\bkommentardokument\b(?:\s*[-_]\s*\d+(?:\.\d+)*)?\s*$")
 _LOCK_BUSY_ERROR_PATTERNS = (
@@ -799,7 +799,6 @@ class ApplianceService:
     def health(self) -> HealthResponse:
         appliance_root = self.settings.resolved_appliance_root()
         available = appliance_root.exists() and appliance_root.is_dir()
-        version = self._read_appliance_version(appliance_root) if available else None
         records = self.discover_projects() if available else []
         discovered_projects = len(records)
         uptime_seconds = max(0.0, (datetime.now(timezone.utc) - self.started_at).total_seconds())
@@ -813,7 +812,7 @@ class ApplianceService:
             appliance_available=available,
             uptime_seconds=uptime_seconds,
             uptime=str(timedelta(seconds=uptime_seconds)),
-            version=version,
+            version=APP_VERSION,
             appliance_root=appliance_root,
             discovered_projects=discovered_projects,
             last_synced_at=self._latest_datetime(record.last_synced_at for record in records),
@@ -3536,17 +3535,3 @@ class ApplianceService:
                     best = value
                     best_length = end
         return best
-
-    def _read_appliance_version(self, appliance_root: Path) -> str | None:
-        pyproject = appliance_root / "pyproject.toml"
-        if not pyproject.exists():
-            return None
-        try:
-            content = pyproject.read_text(encoding="utf-8")
-        except Exception as exc:
-            logger.warning("Unable to read appliance version from %s: %s", pyproject, exc)
-            return None
-        match = _VERSION_RE.search(content)
-        if match is None:
-            return None
-        return match.group(1).strip() or None

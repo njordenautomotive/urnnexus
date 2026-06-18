@@ -35,7 +35,7 @@ const health: HealthResponse = {
   appliance_available: true,
   uptime_seconds: 120,
   uptime: "0:02:00",
-  version: "0.1.5",
+  version: "0.1.9",
   appliance_root: "/home/anbudklient/appliance",
   discovered_projects: 2,
   last_synced_at: "2026-06-09T08:49:00+02:00",
@@ -83,10 +83,13 @@ describe("HealthPage", () => {
     );
 
     expect(markup).toContain("Helse");
-    expect(markup).toContain("0.1.5");
+    expect(markup).toContain("0.1.9");
     expect(markup).toContain("Oppetid");
+    expect(markup).toContain("Prosjekter totalt");
     expect(markup).toContain("Feil/varsler siste 24t");
     expect(markup).toContain("Viser om Nexus-backend svarer på API-kall.");
+    expect(markup).toContain("Antall prosjekter som faktisk er synlige i denne visningen akkurat nå.");
+    expect(markup).toContain("Totalt antall prosjekter backend har funnet i datagrunnlaget.");
     expect(markup).toContain("Viser om Nexus kan opprette, slette og laste opp direkte til OneDrive.");
     expect(markup).toContain('role="tooltip"');
     expect(markup).toContain('tabindex="0"');
@@ -96,7 +99,7 @@ describe("HealthPage", () => {
       "Oppetid",
       "Versjon",
       "Prosjekter i visning",
-      "Antall prosjekter",
+      "Prosjekter totalt",
       "Antall filer",
       "Rapporter",
       "Siste synk",
@@ -128,12 +131,7 @@ describe("HealthPage", () => {
     expect(markup).not.toContain("URN Nexus");
   });
 
-  it("normalizes legacy 0.1.0 version strings to 0.1.5", () => {
-    const legacyHealth = {
-      ...health,
-      version: "0.1.0",
-    };
-
+  it("shows the backend version directly", () => {
     const markup = renderToStaticMarkup(
       <StaticRouter location="/health">
         <AppDataContext.Provider
@@ -142,7 +140,7 @@ describe("HealthPage", () => {
             projectsLoading: false,
             projectsError: null,
             projectWarnings: [],
-            health: legacyHealth,
+            health,
             healthLoading: false,
             healthError: null,
             refresh: () => undefined,
@@ -154,7 +152,7 @@ describe("HealthPage", () => {
       </StaticRouter>,
     );
 
-    expect(markup).toContain("0.1.5");
-    expect(markup).not.toContain("0.1.0");
+    expect(markup).toContain("0.1.9");
+    expect(markup).not.toContain("0.1.5");
   });
 });

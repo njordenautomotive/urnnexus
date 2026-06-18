@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from backend.app.api.routes import router
 from backend.app.config import ApplianceSettings
 from backend.app.models.common import ApiError
+from backend.app.version import APP_VERSION
 from backend.app.services.appliance import (
     ApplianceService,
     ApplianceBusyError,
@@ -40,7 +41,7 @@ def _configure_logging() -> None:
 
 def create_app(settings: ApplianceSettings | None = None, *, onedrive_writer: OneDriveProjectWriter | None = None) -> FastAPI:
     _configure_logging()
-    app = FastAPI(title="URN Nexus Web", version="0.1.5")
+    app = FastAPI(title="URN Nexus Web", version=APP_VERSION)
     resolved_settings = settings or ApplianceSettings()
     app.state.appliance_service = ApplianceService(resolved_settings, onedrive_writer=onedrive_writer)
 

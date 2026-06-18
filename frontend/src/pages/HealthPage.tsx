@@ -32,13 +32,16 @@ export function HealthPage() {
               {health.uptime}
             </HealthInfoCard>
             <HealthInfoCard label="Versjon" tooltip="Gjeldende versjon av Nexus-portalen.">
-              {displayVersion(health.version)}
+              {health.version ?? "—"}
             </HealthInfoCard>
-            <HealthInfoCard label="Prosjekter i visning" tooltip="Antall reelle OneDrive-prosjekter som vises i portalen.">
+            <HealthInfoCard label="Prosjekter i visning" tooltip="Antall prosjekter som faktisk er synlige i denne visningen akkurat nå.">
               {projects.length.toLocaleString("nb-NO")}
             </HealthInfoCard>
 
-            <HealthInfoCard label="Antall prosjekter" tooltip="Totalt antall prosjekter funnet i datagrunnlaget.">
+            <HealthInfoCard
+              label="Prosjekter totalt"
+              tooltip="Totalt antall prosjekter backend har funnet i datagrunnlaget. Noen prosjekter kan være skjult i UI-et, for eksempel sample-prosjekter."
+            >
               {health.project_count.toLocaleString("nb-NO")}
             </HealthInfoCard>
             <HealthInfoCard label="Antall filer" tooltip="Totalt antall kildefiler funnet i viste prosjekter.">
@@ -104,11 +107,4 @@ function HealthInfoCard({ label, tooltip, children }: { label: string; tooltip: 
       </div>
     </article>
   );
-}
-
-function displayVersion(version: string | null): string {
-  if (!version || version === "0.1.0") {
-    return "0.1.5";
-  }
-  return version;
 }

@@ -56,7 +56,7 @@ const health: HealthResponse = {
   appliance_available: true,
   uptime_seconds: 120,
   uptime: "0:02:00",
-  version: "0.1.5",
+  version: "0.1.9",
   appliance_root: "/home/anbudklient/appliance",
   discovered_projects: 2,
   last_synced_at: "2026-06-08T18:03:00+02:00",

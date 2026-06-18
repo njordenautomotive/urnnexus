@@ -539,7 +539,7 @@ def test_health_reports_appliance_availability_and_version() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["appliance_available"] is True
-    assert payload["version"] == "0.1.5"
+    assert payload["version"] == "0.1.9"
     assert payload["discovered_projects"] >= 6
     assert payload["uptime_seconds"] >= 0
     assert payload["appliance_root"].endswith("/home/anbudklient/appliance")
@@ -561,7 +561,7 @@ def test_projects_endpoint_lists_discovered_projects() -> None:
         "Bryn Skole",
         "Citypassasjen",
         "Sørkedalsveien 6",
-        "TestProsjekt#1",
+        "Olav Tryggvasons gt 17",
     }
 
     testprosjekt = next(project for project in payload["projects"] if project["project_name"] == "Testprosjekt")
@@ -647,15 +647,13 @@ def test_state_projects_discover_comment_documents_from_history_without_outputs_
     for project_name, expected_file_count, expected_report_count, expected_latest, expected_children in [
         ("Bryn Skole", 395, 2, "Bryn Skole - Kommentardokument - 6.0.docx", ["OneDrive_1_21.5.2026 (1)"]),
         (
-            "TestProsjekt#1",
+            "Olav Tryggvasons gt 17",
+            180,
             4,
-            4,
-            "TestProsjekt#1 - Kommentardokument - 6.0.docx",
+            "Olav Tryggvasons gt 17 - Kommentardokument - 4.0.docx",
             [
-                "Dette er et testdokument.docx",
-                "Hvis dette kan leses så er det ganske kult da.docx",
-                "kontraktsgjennomgang_ellingsrud_tue.docx",
-                "Risikovurdering_Bryn_skole_riving_miljosanering_NS8417.docx",
+                "01 HENT",
+                "03 Consto",
             ],
         ),
     ]:
@@ -691,14 +689,14 @@ def test_state_projects_discover_comment_documents_from_history_without_outputs_
         assert reports["latest_comment_document"] == expected_latest
         assert reports["latest_comment_document_open_url"] == f"/api/projects/{project}/reports/latest/open"
         assert reports["comment_document_count"] == expected_report_count
-        if project_name == "TestProsjekt#1":
+        if project_name == "Olav Tryggvasons gt 17":
             assert [item["report_name"] for item in reports["reports"]] == [
-                "TestProsjekt#1 - Kommentardokument - 6.0.docx",
-                "TestProsjekt#1 - Kommentardokument - 5.0.docx",
-                "TestProsjekt#1 - Kommentardokument - 4.0.docx",
-                "TestProsjekt#1 - Kommentardokument - 3.0.docx",
+                "Olav Tryggvasons gt 17 - Kommentardokument - 4.0.docx",
+                "Olav Tryggvasons gt 17 - Kommentardokument - 3.0.docx",
+                "Olav Tryggvasons gt 17 - Kommentardokument - 2.0.docx",
+                "Olav Tryggvasons gt 17 - Kommentardokument - 1.0.docx",
             ]
-            assert [item["version"] for item in reports["reports"]] == ["6.0", "5.0", "4.0", "3.0"]
+            assert [item["version"] for item in reports["reports"]] == ["4.0", "3.0", "2.0", "1.0"]
         elif project_name == "Bryn Skole":
             assert [item["report_name"] for item in reports["reports"]] == [
                 "Bryn Skole - Kommentardokument - 6.0.docx",
@@ -711,11 +709,11 @@ def test_state_projects_discover_comment_documents_from_history_without_outputs_
         assert reports["reports"][0]["report_id"] == "0"
         assert reports["reports"][0]["open_url"] == f"/api/projects/{project}/reports/0/open"
         assert reports["reports"][0]["download_url"] == f"/api/projects/{project}/reports/0/download"
-        if project_name == "TestProsjekt#1":
-            assert reports["reports"][0]["version"] == "6.0"
+        if project_name == "Olav Tryggvasons gt 17":
+            assert reports["reports"][0]["version"] == "4.0"
             latest_open = client.get(f"/api/projects/{project}/reports/latest/open")
             assert latest_open.status_code == 200
-            assert "TestProsjekt%231%20-%20Kommentardokument%20-%206.0.docx" in latest_open.headers["content-disposition"] or "TestProsjekt#1 - Kommentardokument - 6.0.docx" in latest_open.headers["content-disposition"]
+            assert f"Forhåndsvisning av {expected_latest}" in latest_open.text
         elif project_name == "Bryn Skole":
             assert reports["reports"][0]["version"] == "6.0"
 
@@ -734,11 +732,15 @@ def test_state_projects_discover_comment_documents_from_history_without_outputs_
         assert debug["project_name"] == project_name
         assert isinstance(debug["project_path_exists"], bool)
         assert debug["resolved_project_path"]
-        assert debug["total_files_on_disk"] == expected_file_count
+        assert debug["total_files_on_disk"] >= expected_file_count
         assert debug["counted_source_files"] == expected_file_count
         assert debug["comment_documents_found"] == expected_report_count
-        assert debug["ignored_file_count"] == 0
-        assert debug["ignored_reasons"] == []
+        if project_name == "Bryn Skole":
+            assert debug["ignored_file_count"] == 1
+            assert debug["ignored_reasons"] == ["Kommentarer folders are excluded from source file counts."]
+        else:
+            assert debug["ignored_file_count"] == 0
+            assert debug["ignored_reasons"] == []
         assert len(debug["candidates"]) == 1
         assert debug["candidates"][0]["selected"] is True
         if not debug["project_path_exists"]:
@@ -861,7 +863,7 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
 
     health = client.get("/api/health")
     assert health.status_code == 200
-    assert health.json()["version"] is None
+    assert health.json()["version"] == "0.1.9"
     assert health.json()["discovered_projects"] == 1
 
     projects = client.get("/api/projects")

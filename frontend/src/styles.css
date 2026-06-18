@@ -419,18 +419,33 @@ code {
   color: #fff;
   font-weight: 600;
   white-space: nowrap;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+  box-shadow:
+    0 1px 0 rgba(15, 23, 42, 0.02),
+    0 4px 10px rgba(15, 23, 42, 0.06);
+  will-change: transform;
   transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease,
-    transform 120ms ease;
+    background-color 100ms ease,
+    border-color 100ms ease,
+    color 100ms ease,
+    box-shadow 100ms ease,
+    transform 90ms ease;
 }
 
 .button:hover,
 .button:focus-visible {
   transform: translateY(-1px);
   background: var(--brand-strong);
+  box-shadow:
+    0 1px 0 rgba(15, 23, 42, 0.02),
+    0 8px 18px rgba(15, 23, 42, 0.1);
+}
+
+.button:active {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 80ms;
+  box-shadow:
+    0 1px 0 rgba(15, 23, 42, 0.02),
+    0 4px 10px rgba(15, 23, 42, 0.06);
 }
 
 .button:disabled,
@@ -438,6 +453,9 @@ code {
 .button:disabled:focus-visible {
   transform: none;
   opacity: 0.56;
+  box-shadow:
+    0 1px 0 rgba(15, 23, 42, 0.02),
+    0 4px 10px rgba(15, 23, 42, 0.06);
 }
 
 .button--muted,
@@ -497,16 +515,27 @@ code {
 }
 
 .action-button--danger {
-  background: #c24141;
-  border-color: #c24141;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 10px;
+  background: var(--danger);
+  border-color: var(--danger);
   color: #ffffff;
+  font-size: 0.94rem;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(180, 35, 24, 0.14);
 }
 
 .action-button--danger:hover,
 .action-button--danger:focus-visible {
-  background: #9f2f2f;
-  border-color: #9f2f2f;
+  background: #9d281e;
+  border-color: #9d281e;
   color: #ffffff;
+  box-shadow: 0 12px 26px rgba(180, 35, 24, 0.18);
+}
+
+.action-button--danger:active {
+  box-shadow: 0 8px 18px rgba(180, 35, 24, 0.14);
 }
 
 .status-pill,
@@ -2137,18 +2166,18 @@ code {
 
 .button--danger,
 .button.analysis-button-danger {
-  background: #c24141;
+  background: var(--danger);
   color: #ffffff;
-  border-color: #c24141;
+  border-color: var(--danger);
 }
 
 .button--danger:hover,
 .button--danger:focus-visible,
 .button.analysis-button-danger:hover,
 .button.analysis-button-danger:focus-visible {
-  background: #9f2f2f;
+  background: #9d281e;
   color: #ffffff;
-  border-color: #9f2f2f;
+  border-color: #9d281e;
 }
 
 .button--danger:disabled,
