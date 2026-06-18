@@ -6,7 +6,7 @@ import { AppDataContext } from "../context/AppDataContext";
 import { AppHeader, AppLayout, ProjectHeader } from "./Layout";
 
 describe("AppLayout", () => {
-  it("shows the compact sidebar brand and Norwegian health label", () => {
+  it("shows the grouped sidebar brand and Norwegian health label", () => {
     const markup = renderToStaticMarkup(
       <StaticRouter location="/">
         <AppDataContext.Provider
@@ -32,6 +32,10 @@ describe("AppLayout", () => {
     );
 
     expect(markup).toContain("URN Nexus");
+    expect(markup).toContain("Enterprise Review Platform");
+    expect(markup).toContain("Oversikt");
+    expect(markup).toContain("Arbeid");
+    expect(markup).toContain("Drift");
     expect(markup).toContain("Analyse");
     expect(markup).toContain("Helse");
     expect(markup).not.toContain("Portal for OneDrive-prosjekter");
