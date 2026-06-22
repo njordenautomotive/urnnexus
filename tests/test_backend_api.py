@@ -61,6 +61,13 @@ def _project_path(name: str) -> str:
     return quote(name, safe="")
 
 
+def _is_numeric_app_version(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    parts = value.split(".")
+    return len(parts) == 3 and all(part.isdigit() for part in parts)
+
+
 def _write_file(path: Path, content: bytes, *, modified_at: datetime | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
@@ -539,7 +546,7 @@ def test_health_reports_appliance_availability_and_version() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["appliance_available"] is True
-    assert payload["version"].startswith("0.1.9+")
+    assert _is_numeric_app_version(payload["version"])
     assert payload["discovered_projects"] >= 6
     assert payload["uptime_seconds"] >= 0
     assert payload["appliance_root"].endswith("/home/anbudklient/appliance")
@@ -863,7 +870,7 @@ def test_custom_root_discovery_is_not_hardcoded_to_existing_project_names(tmp_pa
 
     health = client.get("/api/health")
     assert health.status_code == 200
-    assert health.json()["version"].startswith("0.1.9+")
+    assert _is_numeric_app_version(health.json()["version"])
     assert health.json()["discovered_projects"] == 1
 
     projects = client.get("/api/projects")

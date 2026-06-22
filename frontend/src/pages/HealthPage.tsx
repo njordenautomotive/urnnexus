@@ -35,7 +35,7 @@ export function HealthPage() {
             <HealthInfoCard label="Oppetid" tooltip="Hvor lenge Nexus-backend har kjørt siden siste restart.">
               {health.uptime}
             </HealthInfoCard>
-            <HealthInfoCard label="Versjon" tooltip="Gjeldende Nexus-versjon med commit-id for bygget som kjører.">
+            <HealthInfoCard label="Versjon" tooltip="Gjeldende Nexus-versjon. Tallet øker automatisk med hver commit.">
               {health.version ?? "—"}
             </HealthInfoCard>
             <HealthInfoCard label="Prosjekter i visning" tooltip="Antall prosjekter som faktisk er synlige i denne visningen akkurat nå.">
