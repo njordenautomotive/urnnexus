@@ -32,12 +32,15 @@ describe("AppLayout", () => {
     );
 
     expect(markup).toContain("URN Nexus");
-    expect(markup).toContain("Enterprise Review Platform");
+    expect(markup).toContain('href="/about"');
+    expect(markup).toContain('aria-label="Om URN Nexus"');
+    expect(markup).not.toContain("Enterprise Review Platform");
     expect(markup).toContain("Oversikt");
     expect(markup).toContain("Arbeid");
     expect(markup).toContain("Drift");
     expect(markup).toContain("Analyse");
     expect(markup).toContain("Helse");
+    expect(markup).toContain("Om");
     expect(markup).not.toContain("Portal for OneDrive-prosjekter");
     expect(markup).not.toContain("Oppdater visning laster bare UI på nytt. Synk OneDrive oppdaterer cache fra OneDrive.");
   });

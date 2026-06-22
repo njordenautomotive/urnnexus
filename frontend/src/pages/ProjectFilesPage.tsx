@@ -8,6 +8,30 @@ import { useResource } from "../lib/useResource";
 import type { FileNode } from "../types";
 import { useProjectPageContext } from "./ProjectPage";
 
+type BrowserDirectoryFile = File & {
+  webkitRelativePath?: string;
+};
+
+type FolderUploadError = {
+  path: string;
+  message: string;
+};
+
+type FolderUploadStatus = {
+  total: number;
+  uploaded: number;
+  failed: FolderUploadError[];
+  currentPath: string | null;
+  completed: boolean;
+};
+
+export type FolderUploadEntry = {
+  file: File;
+  filename: string;
+  relativePath: string;
+  targetFolder: string;
+};
+
 function nodePath(node: FileNode): string {
   return node.relative_path || (node.path === "." ? "" : node.path);
 }
@@ -15,6 +39,48 @@ function nodePath(node: FileNode): string {
 function displayExtension(extension: string | null | undefined): string {
   const normalized = String(extension ?? "").replace(/^\./, "").toUpperCase();
   return normalized || "FIL";
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function splitUploadPath(path: string): string[] {
+  const parts = path
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part && part !== ".");
+
+  if (parts.some((part) => part === "..")) {
+    throw new Error("Mappestier kan ikke inneholde '..'.");
+  }
+
+  return parts;
+}
+
+function joinUploadPath(...paths: Array<string | null | undefined>): string {
+  return paths.flatMap((path) => (path ? splitUploadPath(path) : [])).join("/");
+}
+
+function getBrowserRelativePath(file: File): string {
+  const relativePath = (file as BrowserDirectoryFile).webkitRelativePath;
+  return relativePath && relativePath.trim() ? relativePath : file.name;
+}
+
+export function buildFolderUploadEntries(files: File[], selectedFolder: string): FolderUploadEntry[] {
+  return files.map((file) => {
+    const parts = splitUploadPath(getBrowserRelativePath(file));
+    const filename = parts.pop() ?? file.name;
+    const targetFolder = joinUploadPath(selectedFolder, parts.join("/"));
+
+    return {
+      file,
+      filename,
+      relativePath: [...parts, filename].join("/"),
+      targetFolder,
+    };
+  });
 }
 
 export function ProjectFilesPage() {
@@ -27,7 +93,9 @@ export function ProjectFilesPage() {
   const [searchVisibleCount, setSearchVisibleCount] = useState(50);
   const [newFolderName, setNewFolderName] = useState("");
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
+  const [folderUploadStatus, setFolderUploadStatus] = useState<FolderUploadStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setSelectedFolder("");
@@ -36,6 +104,7 @@ export function ProjectFilesPage() {
     setSortKey("name");
     setSearchVisibleCount(50);
     setOperationMessage(null);
+    setFolderUploadStatus(null);
   }, [project.projectName]);
 
   useEffect(() => {
@@ -81,6 +150,79 @@ export function ProjectFilesPage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+    }
+  }
+
+  async function handleFolderUpload(fileList: FileList | null) {
+    const uploadFiles = Array.from(fileList ?? []);
+    if (uploadFiles.length === 0) {
+      return;
+    }
+
+    let entries: FolderUploadEntry[];
+    try {
+      entries = buildFolderUploadEntries(uploadFiles, selectedFolder);
+    } catch (error) {
+      setOperationMessage(getErrorMessage(error, "Kunne ikke lese mappestrukturen."));
+      return;
+    }
+
+    setOperationMessage(`Fant ${entries.length.toLocaleString("nb-NO")} filer i valgt mappe. Starter opplasting ...`);
+    setFolderUploadStatus({
+      total: entries.length,
+      uploaded: 0,
+      failed: [],
+      currentPath: null,
+      completed: false,
+    });
+
+    let uploaded = 0;
+    const failed: FolderUploadError[] = [];
+
+    for (const entry of entries) {
+      setFolderUploadStatus({
+        total: entries.length,
+        uploaded,
+        failed: [...failed],
+        currentPath: entry.relativePath,
+        completed: false,
+      });
+
+      try {
+        await uploadProjectFile(project.projectName, entry.file, entry.targetFolder);
+        uploaded += 1;
+      } catch (error) {
+        failed.push({
+          path: entry.relativePath,
+          message: getErrorMessage(error, "Kunne ikke laste opp filen."),
+        });
+      }
+
+      setFolderUploadStatus({
+        total: entries.length,
+        uploaded,
+        failed: [...failed],
+        currentPath: null,
+        completed: false,
+      });
+    }
+
+    setFolderUploadStatus({
+      total: entries.length,
+      uploaded,
+      failed: [...failed],
+      currentPath: null,
+      completed: true,
+    });
+    setOperationMessage(
+      failed.length > 0
+        ? `Lastet opp ${uploaded.toLocaleString("nb-NO")} av ${entries.length.toLocaleString("nb-NO")} filer. ${failed.length.toLocaleString("nb-NO")} feilet.`
+        : `${uploaded.toLocaleString("nb-NO")} ${uploaded === 1 ? "fil" : "filer"} ble lastet opp med mappestruktur i OneDrive. Kjør Synk OneDrive for å hente endringen inn i Nexus.`,
+    );
+    await refreshAll();
+
+    if (folderInputRef.current) {
+      folderInputRef.current.value = "";
     }
   }
 
@@ -140,6 +282,8 @@ export function ProjectFilesPage() {
 
   const searchQuery = query.trim();
   const searchHasMore = searchResults.total > searchResults.items.length;
+  const folderUploadProcessed = folderUploadStatus ? folderUploadStatus.uploaded + folderUploadStatus.failed.length : 0;
+  const folderUploadProgress = folderUploadStatus && folderUploadStatus.total > 0 ? Math.round((folderUploadProcessed / folderUploadStatus.total) * 100) : 0;
 
   return (
     <div className="section-stack">
@@ -163,6 +307,17 @@ export function ProjectFilesPage() {
             Last opp filer
           </button>
           <input ref={fileInputRef} type="file" hidden multiple onChange={(event) => void handleUpload(event.target.files)} />
+          <button type="button" className="button button--secondary" onClick={() => folderInputRef.current?.click()}>
+            Last opp mappe
+          </button>
+          <input
+            ref={folderInputRef}
+            type="file"
+            hidden
+            multiple
+            {...{ webkitdirectory: "", directory: "" }}
+            onChange={(event) => void handleFolderUpload(event.target.files)}
+          />
           <label className="field field--inline">
             <span>Ny mappe</span>
             <input value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} placeholder="Mappenavn" />
@@ -172,6 +327,47 @@ export function ProjectFilesPage() {
           </button>
           {operationMessage ? <div className="inline-note">{operationMessage}</div> : null}
         </div>
+
+        {folderUploadStatus ? (
+          <div className="upload-progress" role="status" aria-live="polite">
+            <div className="upload-progress__header">
+              <div>
+                <strong>Mappeopplasting</strong>
+                <span>
+                  {folderUploadStatus.completed
+                    ? "Fullført"
+                    : folderUploadStatus.currentPath
+                      ? `Laster opp ${folderUploadStatus.currentPath}`
+                      : "Klargjør filer"}
+                </span>
+              </div>
+              <span>
+                {folderUploadStatus.uploaded.toLocaleString("nb-NO")} / {folderUploadStatus.total.toLocaleString("nb-NO")} lastet opp
+              </span>
+            </div>
+            <div className="upload-progress__track" aria-hidden="true">
+              <span style={{ width: `${folderUploadProgress}%` }} />
+            </div>
+            <div className="upload-progress__meta">
+              <span>{folderUploadStatus.total.toLocaleString("nb-NO")} filer funnet</span>
+              <span>{folderUploadStatus.failed.length.toLocaleString("nb-NO")} feil</span>
+            </div>
+            {folderUploadStatus.failed.length > 0 ? (
+              <details className="upload-progress__errors">
+                <summary>Vis feil</summary>
+                <ul>
+                  {folderUploadStatus.failed.slice(0, 10).map((failure) => (
+                    <li key={`${failure.path}-${failure.message}`}>
+                      <strong>{failure.path}</strong>
+                      <span>{failure.message}</span>
+                    </li>
+                  ))}
+                </ul>
+                {folderUploadStatus.failed.length > 10 ? <p>Viser de første 10 feilene.</p> : null}
+              </details>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="file-toolbar">
           <label className="field">

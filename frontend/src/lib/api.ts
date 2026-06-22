@@ -156,9 +156,10 @@ async function deleteJson<T>(path: string): Promise<T> {
   }
 }
 
-async function sendForm<T>(path: string, formData: FormData): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+async function sendForm<T>(path: string, formData: FormData, options: { timeoutMs?: number } = {}): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const controller = timeoutMs > 0 ? new AbortController() : null;
+  const timeoutId = controller ? globalThis.setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const response = await fetch(joinPath(API_BASE, path), {
       method: "POST",
@@ -166,7 +167,7 @@ async function sendForm<T>(path: string, formData: FormData): Promise<T> {
         Accept: "application/json",
       },
       body: formData,
-      signal: controller.signal,
+      signal: controller?.signal,
     });
 
     if (!response.ok) {
@@ -185,7 +186,9 @@ async function sendForm<T>(path: string, formData: FormData): Promise<T> {
     logApiFailure("POST", path, error);
     throw error;
   } finally {
-    globalThis.clearTimeout(timeoutId);
+    if (timeoutId) {
+      globalThis.clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -302,7 +305,7 @@ export async function uploadProjectFile(projectName: string, file: File, targetF
   const formData = new FormData();
   formData.set("file", file);
   formData.set("target_folder", targetFolder);
-  return sendForm<FileUploadResponse>(projectUrl(projectName, "files/upload"), formData);
+  return sendForm<FileUploadResponse>(projectUrl(projectName, "files/upload"), formData, { timeoutMs: 0 });
 }
 
 export async function createProjectFolder(projectName: string, payload: FolderCreateRequest): Promise<FolderCreateResponse> {

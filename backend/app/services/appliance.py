@@ -43,7 +43,7 @@ from backend.app.models.project import (
     ProjectReportsResponse,
     ProjectSummary,
 )
-from backend.app.version import APP_VERSION
+from backend.app.version import get_app_version
 
 logger = logging.getLogger(__name__)
 
@@ -649,6 +649,18 @@ def _select_analysis_status(payload_status: str | None, state_status: str | None
     return "unknown"
 
 
+def _status_key(status: str | None) -> str:
+    return str(status or "").strip().casefold()
+
+
+def _status_is_error(status: str | None) -> bool:
+    return _status_key(status) in {"failed", "failure", "error", "errored"}
+
+
+def _status_is_warning(status: str | None) -> bool:
+    return _status_key(status) in {"completed_with_warnings", "success_with_warnings", "warning", "warnings"}
+
+
 def _project_folder_category(relative_path: Path) -> str:
     if not relative_path.parts:
         return "other"
@@ -812,7 +824,7 @@ class ApplianceService:
             appliance_available=available,
             uptime_seconds=uptime_seconds,
             uptime=str(timedelta(seconds=uptime_seconds)),
-            version=APP_VERSION,
+            version=get_app_version(),
             appliance_root=appliance_root,
             discovered_projects=discovered_projects,
             last_synced_at=self._latest_datetime(record.last_synced_at for record in records),
@@ -833,8 +845,8 @@ class ApplianceService:
             disk_used_bytes=disk_used_bytes,
             disk_free_bytes=disk_free_bytes,
             cache_size_bytes=self._cache_size_bytes(appliance_root),
-            errors_last_24h=sum(len(record.errors) for record in records if self._record_happened_since(record, cutoff)),
-            warnings_last_24h=sum(len(record.warnings) for record in records if self._record_happened_since(record, cutoff)),
+            errors_last_24h=sum(self._record_error_count_since(record, cutoff) for record in records),
+            warnings_last_24h=sum(self._record_warning_count_since(record, cutoff) for record in records),
         )
 
     def list_projects(self, *, include_local_cache: bool = False) -> ProjectListResponse:
@@ -3159,14 +3171,37 @@ class ApplianceService:
         return latest
 
     def _record_happened_since(self, record: ProjectRecord, cutoff: datetime) -> bool:
+        timestamp = self._latest_datetime(
+            [
+                record.last_synced_at,
+                record.latest_comment_created_at,
+                record.latest_comment_modified_at,
+                record.sort_timestamp,
+            ]
+        )
+        return timestamp is not None and timestamp >= cutoff
+
+    def _record_analysis_happened_since(self, record: ProjectRecord, cutoff: datetime) -> bool:
         timestamp = (
-            record.last_analyzed_at
-            or record.last_synced_at
-            or record.latest_comment_created_at
-            or record.latest_comment_modified_at
+            (record.analysis.last_analyzed_at if record.analysis is not None else None)
+            or record.last_analyzed_at
             or record.sort_timestamp
         )
         return timestamp is not None and timestamp >= cutoff
+
+    def _record_error_count_since(self, record: ProjectRecord, cutoff: datetime) -> int:
+        count = len(record.errors) if self._record_happened_since(record, cutoff) else 0
+        if self._record_analysis_happened_since(record, cutoff):
+            analysis_count = record.analysis.errors_count if record.analysis is not None else 0
+            count += max(analysis_count, 1 if _status_is_error(record.status) else 0)
+        return count
+
+    def _record_warning_count_since(self, record: ProjectRecord, cutoff: datetime) -> int:
+        count = len(record.warnings) if self._record_happened_since(record, cutoff) else 0
+        if self._record_analysis_happened_since(record, cutoff):
+            analysis_count = record.analysis.warnings_count if record.analysis is not None else 0
+            count += max(analysis_count, 1 if _status_is_warning(record.status) else 0)
+        return count
 
     def _disk_usage(self, appliance_root: Path) -> tuple[int | None, int | None, int | None]:
         target = appliance_root if appliance_root.exists() else appliance_root.parent

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteProject, getAnalysisStatus, runAnalysis, runSync } from "./api";
+import { deleteProject, getAnalysisStatus, runAnalysis, runSync, uploadProjectFile } from "./api";
 
 describe("api sync", () => {
   afterEach(() => {
@@ -142,5 +142,41 @@ describe("api sync", () => {
     expect(response.running).toBe(false);
     expect(response.reports_generated).toBe(1);
     expect(response.email_mode).toBe("immediate");
+  });
+
+  it("preserves the relative folder path in file upload payloads without a frontend timeout", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          project_name: "Bryn Skole",
+          filename: "tilbud.pdf",
+          target_folder: "Anbud/Konkurranse/Vedlegg",
+          relative_path: "Anbud/Konkurranse/Vedlegg/tilbud.pdf",
+          size_bytes: 6,
+          mode: "onedrive",
+          warning: null,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const file = new File(["tilbud"], "tilbud.pdf", { type: "application/pdf" });
+    const response = await uploadProjectFile("Bryn Skole", file, "Anbud/Konkurranse/Vedlegg");
+    const [, init] = fetchMock.mock.calls[0];
+    const body = init?.body as FormData;
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/Bryn%20Skole/files/upload",
+      expect.objectContaining({
+        method: "POST",
+        signal: undefined,
+      }),
+    );
+    expect(body.get("target_folder")).toBe("Anbud/Konkurranse/Vedlegg");
+    expect((body.get("file") as File).name).toBe("tilbud.pdf");
+    expect(response.relative_path).toBe("Anbud/Konkurranse/Vedlegg/tilbud.pdf");
   });
 });

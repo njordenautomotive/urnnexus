@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { createProjectViewModel } from "../lib/projects";
 import type { ProjectPageContext } from "./ProjectPage";
-import { ProjectFilesPage } from "./ProjectFilesPage";
+import { buildFolderUploadEntries, ProjectFilesPage } from "./ProjectFilesPage";
 import type { FileNode, ProjectDetailResponse, ProjectFilesResponse, ProjectSummary } from "../types";
 
 const mocks = vi.hoisted(() => ({
@@ -145,5 +145,27 @@ describe("ProjectFilesPage", () => {
     expect(markup).not.toContain("detail-grid--compact");
     expect((markup.match(/detail-card/g) ?? []).length).toBe(0);
     expect((markup.match(/file-browser-row--file/g) ?? []).length).toBe(1);
+  });
+
+  it("renders folder upload with a browser directory input", () => {
+    const markup = renderToStaticMarkup(<ProjectFilesPage />);
+
+    expect(markup).toContain("Last opp mappe");
+    expect(markup).toContain('type="file"');
+    expect(markup).toContain("webkitdirectory");
+    expect(markup).toContain("directory");
+  });
+
+  it("preserves folder paths from webkitRelativePath in upload targets", () => {
+    const file = new File(["tilbud"], "tilbud.pdf", { type: "application/pdf" });
+    Object.defineProperty(file, "webkitRelativePath", {
+      value: "Konkurranse/Vedlegg/tilbud.pdf",
+    });
+
+    const [entry] = buildFolderUploadEntries([file], "Anbud");
+
+    expect(entry.filename).toBe("tilbud.pdf");
+    expect(entry.relativePath).toBe("Konkurranse/Vedlegg/tilbud.pdf");
+    expect(entry.targetFolder).toBe("Anbud/Konkurranse/Vedlegg");
   });
 });

@@ -14,7 +14,7 @@ export function HealthPage() {
 
   return (
     <div className="page-stack">
-      <AppHeader title="Helse" description=" " />
+      <AppHeader title="Helse" />
 
       {healthLoading ? (
         <section className="surface surface--padded">
@@ -23,7 +23,11 @@ export function HealthPage() {
       ) : !health ? (
         <EmptyState title="Kunne ikke hente helse" description="API-et returnerte ikke helsedata." />
       ) : (
-        <section className="surface surface--padded">
+        <section className="surface surface--padded health-surface">
+          <div className="health-surface__head">
+            <h2>Systemstatus</h2>
+            <span>Siste tilgjengelige driftssignal</span>
+          </div>
           <div className="health-grid">
             <HealthInfoCard label="Tilgjengelig" tooltip="Viser om Nexus-backend svarer på API-kall.">
               <StatusPill status={health.appliance_available ? "online" : "offline"} label={health.appliance_available ? "Ja" : "Nei"} />
@@ -31,7 +35,7 @@ export function HealthPage() {
             <HealthInfoCard label="Oppetid" tooltip="Hvor lenge Nexus-backend har kjørt siden siste restart.">
               {health.uptime}
             </HealthInfoCard>
-            <HealthInfoCard label="Versjon" tooltip="Gjeldende versjon av Nexus-portalen.">
+            <HealthInfoCard label="Versjon" tooltip="Gjeldende Nexus-versjon med commit-id for bygget som kjører.">
               {health.version ?? "—"}
             </HealthInfoCard>
             <HealthInfoCard label="Prosjekter i visning" tooltip="Antall prosjekter som faktisk er synlige i denne visningen akkurat nå.">
@@ -100,7 +104,7 @@ function HealthInfoCard({ label, tooltip, children }: { label: string; tooltip: 
 
   return (
     <article className="detail-card health-card" tabIndex={0} role="group" aria-describedby={tooltipId}>
-      <span>{label}</span>
+      <span className="health-card__label">{label}</span>
       <div className="health-card__value">{children}</div>
       <div className="health-card__tooltip" id={tooltipId} role="tooltip">
         {tooltip}

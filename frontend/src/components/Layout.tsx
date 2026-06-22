@@ -1,16 +1,103 @@
-import type { ReactNode, SVGProps } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState, type ReactNode, type SVGProps } from "react";
+import { Link, NavLink, Outlet } from "react-router-dom";
 import { useAppData } from "../context/AppDataContext";
 import { StatusPill } from "./StatusPill";
 
+export const THEME_STORAGE_KEY = "urn-nexus:theme";
+type ThemeMode = "light" | "dark";
+
+function isThemeMode(value: string | null): value is ThemeMode {
+  return value === "light" || value === "dark";
+}
+
+function readStoredTheme(): ThemeMode | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return isThemeMode(storedTheme) ? storedTheme : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredTheme(theme: ThemeMode): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // Theme still changes for the current session if storage is unavailable.
+  }
+}
+
+function getSystemTheme(): ThemeMode {
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+    return "dark";
+  }
+  return "light";
+}
+
+function getInitialTheme(): ThemeMode {
+  return readStoredTheme() ?? getSystemTheme();
+}
+
+function applyTheme(theme: ThemeMode): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+}
+
+function useThemePreference() {
+  const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) {
+      return undefined;
+    }
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (!readStoredTheme()) {
+        setTheme(event.matches ? "dark" : "light");
+      }
+    };
+
+    media.addEventListener?.("change", handleChange);
+    return () => media.removeEventListener?.("change", handleChange);
+  }, []);
+
+  function toggleTheme() {
+    setTheme((currentTheme) => {
+      const nextTheme = currentTheme === "dark" ? "light" : "dark";
+      writeStoredTheme(nextTheme);
+      return nextTheme;
+    });
+  }
+
+  return { theme, toggleTheme };
+}
+
 export function AppLayout() {
   const { dailySync, dismissDailySync } = useAppData();
+  const { theme, toggleTheme } = useThemePreference();
 
   return (
     <div className="app-shell">
       <Sidebar />
       <main className="app-main">
         <div className="app-main__frame">
+          <div className="global-toolbar" aria-label="Globale valg">
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          </div>
           <Outlet />
         </div>
       </main>
@@ -19,18 +106,31 @@ export function AppLayout() {
   );
 }
 
+function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => void }) {
+  const isDark = theme === "dark";
+  return (
+    <button type="button" className="theme-toggle" aria-label={isDark ? "Bytt til lys modus" : "Bytt til mørk modus"} aria-pressed={isDark} onClick={onToggle}>
+      <span className={`theme-toggle__icon ${!isDark ? "theme-toggle__icon--active" : ""}`} aria-hidden="true">
+        <SunIcon />
+      </span>
+      <span className={`theme-toggle__icon ${isDark ? "theme-toggle__icon--active" : ""}`} aria-hidden="true">
+        <MoonIcon />
+      </span>
+    </button>
+  );
+}
+
 function Sidebar() {
   const { healthError } = useAppData();
 
   return (
     <aside className="sidebar">
-      <div className="sidebar__brand">
+      <Link className="sidebar__brand" to="/about" aria-label="Om URN Nexus">
         <img className="sidebar__logo" src="/brand/urn_nexus_128.png" alt="" aria-hidden="true" />
         <div className="sidebar__brand-text">
           <div className="sidebar__title">URN Nexus</div>
-          <div className="sidebar-brand-subtitle">Enterprise Review Platform</div>
         </div>
-      </div>
+      </Link>
 
       <SidebarSection title="Oversikt">
         <SidebarNavItem to="/" end label="Dashboard" icon={<DashboardIcon />} />
@@ -43,6 +143,7 @@ function Sidebar() {
 
       <SidebarSection title="Drift">
         <SidebarNavItem to="/health" label="Helse" icon={<HealthIcon />} />
+        <SidebarNavItem to="/about" label="Om" icon={<AboutIcon />} />
       </SidebarSection>
 
       {healthError ? <div className="sidebar__error">{healthError}</div> : null}
@@ -120,6 +221,40 @@ function HealthIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M2.5 8h2.1l1.4-2.8 1.8 5.6 1.5-3h4.2" />
       <path d="M13.5 8.2A5.5 5.5 0 0 1 8 13.5 5.5 5.5 0 0 1 2.5 8a5.5 5.5 0 0 1 11 0Z" />
+    </svg>
+  );
+}
+
+function AboutIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 7.2v3.6" />
+      <path d="M8 5.1h.01" />
+    </svg>
+  );
+}
+
+function SunIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="8" cy="8" r="2.6" />
+      <path d="M8 1.8v1.3" />
+      <path d="M8 12.9v1.3" />
+      <path d="m3.6 3.6.9.9" />
+      <path d="m11.5 11.5.9.9" />
+      <path d="M1.8 8h1.3" />
+      <path d="M12.9 8h1.3" />
+      <path d="m3.6 12.4.9-.9" />
+      <path d="m11.5 4.5.9-.9" />
+    </svg>
+  );
+}
+
+function MoonIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M13.4 9.5A5.2 5.2 0 0 1 6.5 2.6 5.5 5.5 0 1 0 13.4 9.5Z" />
     </svg>
   );
 }
