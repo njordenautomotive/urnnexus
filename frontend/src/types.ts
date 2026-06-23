@@ -1,4 +1,13 @@
 export type ApiStatus = "unknown" | "skipped_no_changes" | "completed" | "completed_with_warnings" | "failed" | string;
+export type AnalysisStatus =
+  | "idle"
+  | "startup_pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "auth_failed"
+  | "sync_failed";
+export type AnalysisAuthStatus = "unknown" | "ok" | "auth_failed" | "sync_failed";
 
 export interface ApiError {
   code: string;
@@ -289,15 +298,20 @@ export interface AnalysisStatusResponse {
   lock_stale: boolean;
   activity: "sync" | "analysis" | "idle";
   job_id: string | null;
+  start_requested_at: string | null;
   last_started_at: string | null;
   last_completed_at: string | null;
+  startup_grace_active: boolean;
+  process_spawned: boolean;
+  auth_status: AnalysisAuthStatus;
   last_error: string | null;
+  last_start_error: string | null;
   projects_synced: number;
   files_changed: number;
   reports_found: number;
   reports_generated: number;
   email_mode: "daily_digest" | "immediate" | null;
   project_name: string | null;
-  status: string;
+  status: AnalysisStatus;
   analysis_started: boolean;
 }

@@ -110,9 +110,14 @@ function makeAnalysisStatus(overrides: Partial<AnalysisStatusResponse> = {}): An
     lock_stale: false,
     activity: "idle",
     job_id: "analysis-job",
+    start_requested_at: null,
     last_started_at: "2026-06-12T08:00:00+02:00",
     last_completed_at: "2026-06-12T08:03:00+02:00",
+    startup_grace_active: false,
+    process_spawned: false,
+    auth_status: "ok",
     last_error: null,
+    last_start_error: null,
     projects_synced: 0,
     files_changed: 0,
     reports_found: 0,
@@ -341,6 +346,32 @@ describe("DashboardPage", () => {
     expect(container.textContent).toContain(ANALYSIS_RUNNING_LABEL);
     expect(container.textContent).not.toContain("Awaiting history lock");
     expect(container.textContent).not.toContain("onedrive_sync_history.lock");
+  });
+
+  it("disables the sync button while analysis is still starting", async () => {
+    const { container } = renderDashboard(
+      makeSyncStatus({
+        status: "completed",
+        last_error: null,
+      }),
+      [makeProject({})],
+      makeAnalysisStatus({
+        running: false,
+        process_alive: false,
+        lock_exists: false,
+        status: "startup_pending",
+        activity: "analysis",
+        startup_grace_active: true,
+        process_spawned: true,
+      }),
+    );
+
+    await flushDashboardEffects();
+
+    const syncButton = getSyncButton(container);
+    expect(syncButton.disabled).toBe(true);
+    expect(container.textContent).toContain(SYNC_LOCK_HELP_TEXT);
+    expect(container.textContent).toContain(ANALYSIS_RUNNING_LABEL);
   });
 
   it("re-enables the sync button after a busy response once the live poll says Appliance is idle", async () => {

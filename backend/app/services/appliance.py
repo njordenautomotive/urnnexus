@@ -87,6 +87,29 @@ _LOCK_BUSY_ERROR_PATTERNS = (
     "onedrive_sync_history.lock",
     "onedrive_lightweight_state.sqlite3",
 )
+_ANALYSIS_AUTH_ERROR_PATTERNS = (
+    "aadsts",
+    "invalid_grant",
+    "authentication failed",
+    "graph auth",
+    "graph authentication",
+    "invalid client",
+    "unauthorized",
+    "access token",
+    "token expired",
+    "permission denied",
+    "forbidden",
+)
+_ANALYSIS_SYNC_ERROR_PATTERNS = (
+    "sync failed",
+    "sync error",
+    "onedrive sync failed",
+    "waiting for history lock",
+    "awaiting history lock",
+    "onedrive_sync_history.lock",
+    "onedrive_lightweight_state.sqlite3",
+)
+ANALYSIS_STARTUP_GRACE_SECONDS = 5.0
 APPLIANCE_BUSY_MESSAGE = "Appliance arbeider. Synk kan startes når aktiv jobb er ferdig."
 
 
@@ -506,9 +529,13 @@ class AnalysisJobState:
     running: bool = False
     job_id: str | None = None
     process: subprocess.Popen[str] | None = None
+    start_requested_at: datetime | None = None
     last_started_at: datetime | None = None
     last_completed_at: datetime | None = None
+    process_spawned: bool = False
+    auth_status: str = "unknown"
     last_error: str | None = None
+    last_start_error: str | None = None
     projects_synced: int = 0
     files_changed: int = 0
     reports_found: int = 0
@@ -790,6 +817,17 @@ def _is_lock_busy_error(message: str | None) -> bool:
         return False
     lowered = message.casefold()
     return any(pattern in lowered for pattern in _LOCK_BUSY_ERROR_PATTERNS)
+
+
+def _classify_analysis_error(message: str | None) -> tuple[str, str]:
+    if not message:
+        return "failed", "unknown"
+    lowered = message.casefold()
+    if any(pattern in lowered for pattern in _ANALYSIS_AUTH_ERROR_PATTERNS):
+        return "auth_failed", "auth_failed"
+    if any(pattern in lowered for pattern in _ANALYSIS_SYNC_ERROR_PATTERNS):
+        return "sync_failed", "sync_failed"
+    return "failed", "unknown"
 
 
 class ApplianceService:
@@ -1313,6 +1351,20 @@ class ApplianceService:
             self._validate_nexus_analysis_command(command)
             started_at = datetime.now(OSLO_TIMEZONE)
             job_id = uuid4().hex
+            self._analysis_state = AnalysisJobState(
+                running=False,
+                job_id=job_id,
+                process=None,
+                start_requested_at=started_at,
+                last_started_at=started_at,
+                process_spawned=False,
+                auth_status="unknown",
+                last_error=None,
+                last_start_error=None,
+                status="startup_pending",
+                email_mode=normalized_email_mode,
+                project_name=normalized_project_name,
+            )
             try:
                 process = subprocess.Popen(
                     command,
@@ -1322,19 +1374,19 @@ class ApplianceService:
                     text=True,
                 )
             except Exception as exc:
-                self._analysis_state.last_error = str(exc)
-                self._analysis_state.status = "failed"
+                error_text = str(exc)
+                status, auth_status = _classify_analysis_error(error_text)
+                self._analysis_state.running = False
+                self._analysis_state.process_spawned = False
+                self._analysis_state.last_error = error_text
+                self._analysis_state.last_start_error = error_text
+                self._analysis_state.last_completed_at = datetime.now(OSLO_TIMEZONE)
+                self._analysis_state.auth_status = auth_status
+                self._analysis_state.status = status
                 raise AnalysisUnavailableError(f"Unable to start appliance analysis: {exc}") from exc
 
-            self._analysis_state = AnalysisJobState(
-                running=True,
-                job_id=job_id,
-                process=process,
-                last_started_at=started_at,
-                status="running",
-                email_mode=normalized_email_mode,
-                project_name=normalized_project_name,
-            )
+            self._analysis_state.process = process
+            self._analysis_state.process_spawned = True
             threading.Thread(target=self._monitor_analysis_process, args=(job_id, process), daemon=True).start()
             return AnalysisRunResponse(
                 job_id=job_id,
@@ -1376,24 +1428,53 @@ class ApplianceService:
             snapshot = self._runtime_activity_snapshot_locked()
             self._refresh_analysis_state_locked(snapshot=snapshot)
             self._clear_stale_lock_error(self._analysis_state, label="analysis")
+            now = datetime.now(OSLO_TIMEZONE)
+            startup_grace_active = bool(
+                self._analysis_state.start_requested_at
+                and self._analysis_state.status == "startup_pending"
+                and now < self._analysis_state.start_requested_at + timedelta(seconds=ANALYSIS_STARTUP_GRACE_SECONDS)
+            )
+            effective_running = self._analysis_state.running or snapshot.analysis_running
+            effective_process_alive = self._is_process_active(self._analysis_state.process) or snapshot.analysis_running
+            effective_activity = snapshot.activity
+            if self._analysis_state.status == "startup_pending" or effective_running:
+                effective_activity = "analysis"
+
+            effective_status = self._analysis_state.status
+            effective_auth_status = self._analysis_state.auth_status
+            error_source = self._analysis_state.last_error or self._analysis_state.last_start_error
+            if effective_status in {"failed", "auth_failed", "sync_failed"} and effective_auth_status == "unknown" and error_source:
+                effective_status, effective_auth_status = _classify_analysis_error(error_source)
+            elif effective_status == "completed":
+                effective_auth_status = "ok"
+            elif effective_status == "startup_pending":
+                effective_auth_status = "unknown"
+            elif effective_status == "running" and effective_auth_status == "unknown":
+                effective_auth_status = "ok"
+
             return AnalysisStatusResponse(
-                running=snapshot.analysis_running,
-                process_alive=snapshot.analysis_running,
+                running=effective_running,
+                process_alive=effective_process_alive,
                 lock_exists=snapshot.lock_exists,
                 lock_stale=snapshot.lock_stale,
-                activity=snapshot.activity,
+                activity=effective_activity,
                 job_id=self._analysis_state.job_id,
+                start_requested_at=self._analysis_state.start_requested_at,
                 last_started_at=self._analysis_state.last_started_at,
                 last_completed_at=self._analysis_state.last_completed_at,
+                startup_grace_active=startup_grace_active,
+                process_spawned=self._analysis_state.process_spawned,
+                auth_status=effective_auth_status,  # type: ignore[arg-type]
                 last_error=self._analysis_state.last_error,
+                last_start_error=self._analysis_state.last_start_error,
                 projects_synced=self._analysis_state.projects_synced,
                 files_changed=self._analysis_state.files_changed,
                 reports_found=self._analysis_state.reports_found,
                 reports_generated=self._analysis_state.reports_generated,
                 email_mode=self._analysis_state.email_mode,
                 project_name=self._analysis_state.project_name,
-                status=self._analysis_state.status,
-                analysis_started=snapshot.analysis_running,
+                status=effective_status,  # type: ignore[arg-type]
+                analysis_started=bool(self._analysis_state.start_requested_at or effective_running),
             )
 
     def _clear_stale_lock_error(self, state: SyncJobState | AnalysisJobState, *, label: str) -> None:
@@ -3468,11 +3549,13 @@ class ApplianceService:
         stdout, stderr = process.communicate()
         completed_at = datetime.now(OSLO_TIMEZONE)
         summary = self._parse_cycle_summary(stdout)
+        error_text = (stderr or stdout or "").strip() or None
         with self._analysis_lock:
             if self._analysis_state.job_id != job_id:
                 return
             self._analysis_state.running = False
             self._analysis_state.process = process
+            self._analysis_state.process_spawned = False
             self._analysis_state.last_completed_at = completed_at
             self._analysis_state.projects_synced = summary.get("projects_synced", 0)
             self._analysis_state.files_changed = summary.get("files_changed", 0)
@@ -3482,10 +3565,14 @@ class ApplianceService:
             self._analysis_state.project_name = summary.get("project_name") or self._analysis_state.project_name
             if process.returncode == 0:
                 self._analysis_state.status = "completed"
+                self._analysis_state.auth_status = "ok"
                 self._analysis_state.last_error = None
+                self._analysis_state.last_start_error = None
             else:
-                self._analysis_state.status = "failed"
-                self._analysis_state.last_error = (stderr or stdout or "Appliance analysis failed.").strip()[-2000:]
+                status, auth_status = _classify_analysis_error(error_text or "Appliance analysis failed.")
+                self._analysis_state.status = status
+                self._analysis_state.auth_status = auth_status
+                self._analysis_state.last_error = (error_text or "Appliance analysis failed.")[-2000:]
 
     def _parse_sync_summary(self, stdout: str) -> dict[str, int]:
         parsed = self._parse_cycle_summary(stdout)

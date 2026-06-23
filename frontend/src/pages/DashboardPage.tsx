@@ -41,10 +41,11 @@ export function DashboardPage() {
   const applianceStatus = healthLoading ? "loading" : health?.appliance_available ? "online" : "offline";
   const applianceLabel = healthLoading ? "Laster" : health?.appliance_available ? "online" : "offline";
   const metrics = buildDashboardMetrics(visibleProjects);
-  const applianceActivity = syncStatus?.activity && syncStatus.activity !== "idle" ? syncStatus.activity : analysisStatus?.activity ?? "idle";
+  const analysisStartupBusy = analysisStatus?.status === "startup_pending" || analysisStatus?.startup_grace_active === true;
+  const applianceActivity = syncStatus?.activity && syncStatus.activity !== "idle" ? syncStatus.activity : analysisStartupBusy ? "analysis" : analysisStatus?.activity ?? "idle";
   const syncHasStaleLock = Boolean(syncStatus?.last_error && isLockBusyError(syncStatus.last_error));
   const applianceBusy =
-    syncBusyLive || syncStatus?.running === true || analysisStatus?.running === true || syncStatus?.lock_exists === true || analysisStatus?.lock_exists === true;
+    syncBusyLive || syncStatus?.running === true || analysisStatus?.running === true || analysisStartupBusy || syncStatus?.lock_exists === true || analysisStatus?.lock_exists === true;
   const syncPillStatus = applianceBusy ? "RUNNING" : syncHasStaleLock ? "idle" : syncStatus?.status === "failed" ? "FAILED" : "idle";
   const syncPillLabel = applianceBusy
     ? applianceActivity === "sync"

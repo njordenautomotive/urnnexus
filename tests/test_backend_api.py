@@ -1993,6 +1993,84 @@ def test_analysis_status_clears_stale_lock_error_when_process_is_not_running(tmp
     assert payload["activity"] == "idle"
 
 
+def test_analysis_status_reports_startup_pending_and_grace_window(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    started_at = datetime.now(timezone.utc) - timedelta(seconds=2)
+    service._analysis_state = AnalysisJobState(
+        running=True,
+        job_id="analysis-job",
+        start_requested_at=started_at,
+        last_started_at=started_at,
+        process_spawned=True,
+        auth_status="unknown",
+        projects_synced=0,
+        files_changed=0,
+        reports_found=0,
+        reports_generated=0,
+        email_mode="daily_digest",
+        project_name="Bryn Skole",
+        status="startup_pending",
+    )
+    client = _AsyncAppClient(app)
+
+    response = client.get("/api/analysis/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "startup_pending"
+    assert payload["running"] is False
+    assert payload["process_alive"] is False
+    assert payload["process_spawned"] is True
+    assert payload["startup_grace_active"] is True
+    assert payload["auth_status"] == "unknown"
+    assert datetime.fromisoformat(payload["start_requested_at"].replace("Z", "+00:00")) == started_at
+    assert payload["analysis_started"] is True
+    assert payload["activity"] == "analysis"
+
+
+@pytest.mark.parametrize(
+    ("last_error", "expected_status", "expected_auth_status"),
+    [
+        ("Microsoft Graph returned invalid_grant while requesting an access token.", "auth_failed", "auth_failed"),
+        ("OneDrive sync failed while preparing the analysis workspace.", "sync_failed", "sync_failed"),
+    ],
+)
+def test_analysis_status_classifies_terminal_failures(tmp_path: Path, last_error: str, expected_status: str, expected_auth_status: str) -> None:
+    appliance_root = tmp_path / "appliance"
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    started_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    service._analysis_state = AnalysisJobState(
+        running=False,
+        job_id="analysis-job",
+        start_requested_at=started_at,
+        last_started_at=started_at,
+        last_completed_at=started_at + timedelta(minutes=1),
+        last_error=last_error,
+        process_spawned=False,
+        auth_status="unknown",
+        projects_synced=0,
+        files_changed=0,
+        reports_found=0,
+        reports_generated=0,
+        email_mode="daily_digest",
+        project_name="Bryn Skole",
+        status="failed",
+    )
+    client = _AsyncAppClient(app)
+
+    response = client.get("/api/analysis/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == expected_status
+    assert payload["auth_status"] == expected_auth_status
+    assert payload["startup_grace_active"] is False
+    assert payload["last_error"] == last_error
+
+
 def test_analysis_endpoint_fails_safely_when_full_pipeline_is_unavailable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     appliance_root = tmp_path / "appliance"
     script_path = appliance_root / "scripts" / "run_onedrive_appliance.py"

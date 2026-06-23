@@ -290,10 +290,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const applianceActivity = syncStatus.activity !== "idle" ? syncStatus.activity : analysisStatus.activity;
+        const analysisStartupBusy = analysisStatus.status === "startup_pending" || analysisStatus.startup_grace_active;
+        const applianceActivity = syncStatus.activity !== "idle" ? syncStatus.activity : analysisStartupBusy ? "analysis" : analysisStatus.activity;
         const syncRunning = syncStatus.running || (syncStatus.lock_exists && applianceActivity === "sync");
-        const analysisRunning = analysisStatus.running || (analysisStatus.lock_exists && applianceActivity === "analysis");
-        const anyLiveLock = syncStatus.lock_exists || analysisStatus.lock_exists;
+        const analysisRunning = analysisStatus.running || analysisStartupBusy || (analysisStatus.lock_exists && applianceActivity === "analysis");
+        const anyLiveLock = syncStatus.lock_exists || analysisStatus.lock_exists || analysisStartupBusy;
 
         if (syncRunning) {
           const startedAt = syncStatus.last_started_at ?? currentRecord?.started_at ?? new Date().toISOString();

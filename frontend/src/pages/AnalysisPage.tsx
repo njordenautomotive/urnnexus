@@ -5,7 +5,15 @@ import { ProjectTable } from "../components/ProjectTable";
 import { StatusPill } from "../components/StatusPill";
 import { useAppData } from "../context/AppDataContext";
 import { ApiRequestError, formatDateTime, getAnalysisStatus, runAnalysis } from "../lib/api";
-import { APPLIANCE_BUSY_MESSAGE, getVisibleAnalysisErrorMessage, isLockBusyError } from "../lib/applianceStatus";
+import {
+  ANALYSIS_STARTING_LABEL,
+  ANALYSIS_STARTUP_GRACE_MS,
+  APPLIANCE_BUSY_MESSAGE,
+  getVisibleAnalysisErrorMessage,
+  isAnalysisStartupStatus,
+  isAnalysisTerminalStatus,
+  isLockBusyError,
+} from "../lib/applianceStatus";
 import type { ProjectViewModel } from "../lib/projects";
 import type { AnalysisStatusResponse } from "../types";
 
@@ -28,6 +36,62 @@ const ANALYSIS_EMAIL_MODES: Array<{
   },
 ];
 
+interface AnalysisStartupState {
+  startedAt: number;
+  jobId: string | null;
+  scopeLabel: string;
+  graceExpired: boolean;
+}
+
+function parseAnalysisTimestamp(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function isAnalysisCurrentRun(status: AnalysisStatusResponse | null, startup: AnalysisStartupState | null): boolean {
+  if (!status || !startup) {
+    return false;
+  }
+  if (status.job_id && startup.jobId && status.job_id === startup.jobId) {
+    return true;
+  }
+  const startedAt = parseAnalysisTimestamp(status.last_started_at ?? status.start_requested_at);
+  return startedAt !== null && startedAt >= startup.startedAt - 1000;
+}
+
+function isAnalysisActive(status: AnalysisStatusResponse | null): boolean {
+  if (!status) {
+    return false;
+  }
+  return Boolean(status.running || status.process_alive || status.lock_exists || status.status === "running");
+}
+
+function resolveAnalysisPhase(status: AnalysisStatusResponse | null, startup: AnalysisStartupState | null): "idle" | "starting" | "delayed" | "running" | "failed" | "completed" {
+  if (!status && !startup) {
+    return "idle";
+  }
+  if (status?.status === "completed") {
+    return "completed";
+  }
+  const currentRun = isAnalysisCurrentRun(status, startup);
+  if (status && isAnalysisTerminalStatus(status.status) && (currentRun || !startup)) {
+    return "failed";
+  }
+  if (startup || isAnalysisStartupStatus(status?.status) || status?.startup_grace_active) {
+    if (isAnalysisActive(status)) {
+      return "running";
+    }
+    return startup?.graceExpired || status?.startup_grace_active === false ? "delayed" : "starting";
+  }
+  if (isAnalysisActive(status)) {
+    return "running";
+  }
+  return "idle";
+}
+
 export function AnalysisPage() {
   const { projects, projectsLoading, projectsError, health, healthLoading, healthError, refresh } = useAppData();
   const [analysisTarget, setAnalysisTarget] = useState<ProjectViewModel | null | undefined>(undefined);
@@ -37,7 +101,10 @@ export function AnalysisPage() {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatusResponse | null>(null);
   const [analysisStatusError, setAnalysisStatusError] = useState<string | null>(null);
   const [analysisStatusLoading, setAnalysisStatusLoading] = useState(true);
+  const [analysisStartup, setAnalysisStartup] = useState<AnalysisStartupState | null>(null);
   const previousRunningRef = useRef(false);
+  const analysisStartupRef = useRef<AnalysisStartupState | null>(null);
+  const analysisStartupTimerRef = useRef<number | undefined>(undefined);
 
   const graphWriteReady = health?.graph_write_status === "configured";
   const analysisDisabledReason = healthLoading
@@ -45,19 +112,69 @@ export function AnalysisPage() {
     : graphWriteReady
       ? null
       : health?.graph_write_detail ?? "Microsoft Graph-write er ikke konfigurert.";
-  const analysisPillStatus = analysisStatusLoading && !analysisStatus ? "loading" : analysisStatus?.running ? "RUNNING" : analysisStatus?.status === "failed" ? "failed" : analysisStatus?.last_completed_at ? "completed" : "idle";
-  const analysisPillLabel = analysisStatusLoading && !analysisStatus
-    ? "Laster"
-    : analysisStatus?.running
-      ? "Analyse pågår"
-      : analysisStatus?.status === "failed"
-        ? "Analyse feilet"
-        : analysisStatus?.last_completed_at
-          ? "Analyse fullført"
-          : "Klar";
-  const analysisLastError = getVisibleAnalysisErrorMessage(analysisStatus?.last_error);
-  const analysisFailureMessage = analysisStatus?.status === "failed" ? analysisLastError ?? "Siste analyse endte med feil." : analysisLastError;
-  const analysisLastErrorTone = analysisStatus?.last_error && isLockBusyError(analysisStatus.last_error) ? "warning" : "danger";
+  const analysisStartupActive = Boolean(analysisStartup || analysisStatus?.startup_grace_active || isAnalysisStartupStatus(analysisStatus?.status));
+  const analysisPhase = resolveAnalysisPhase(analysisStatus, analysisStartup);
+  const analysisStartupNoticeVisible = analysisPhase === "starting" || analysisPhase === "delayed";
+  const analysisStartupScopeLabel = analysisStartup?.scopeLabel ?? "for alle prosjekter";
+  const analysisStartupTitle =
+    analysisPhase === "delayed"
+      ? "Analyse tar lenger tid enn forventet"
+      : analysisPhase === "running"
+        ? "Analyse er i gang"
+        : "Starter analyse";
+  const analysisStartupMessage =
+    analysisPhase === "delayed"
+      ? "Vi venter fortsatt på første status fra appliance."
+      : `Kobler til OneDrive og klargjør prosjektliste ${analysisStartupScopeLabel} …`;
+  const analysisPillStatus =
+    analysisStatusLoading && !analysisStatus
+      ? "loading"
+      : analysisPhase === "starting" || analysisPhase === "delayed"
+        ? "loading"
+        : analysisPhase === "running"
+          ? "RUNNING"
+          : analysisPhase === "failed"
+            ? "failed"
+            : analysisPhase === "completed"
+              ? "completed"
+              : "idle";
+  const analysisPillLabel =
+    analysisStatusLoading && !analysisStatus
+      ? "Laster"
+      : analysisPhase === "starting"
+        ? ANALYSIS_STARTING_LABEL
+        : analysisPhase === "delayed"
+          ? "Venter"
+          : analysisPhase === "running"
+            ? "Analyse pågår"
+            : analysisPhase === "failed"
+              ? analysisStatus?.status === "auth_failed"
+                ? "Graph auth feilet"
+                : analysisStatus?.status === "sync_failed"
+                  ? "OneDrive sync feilet"
+                  : "Analyse feilet"
+              : analysisPhase === "completed"
+                ? "Analyse fullført"
+                : "Klar";
+  const analysisVisibleErrorSource = analysisStatus?.last_error ?? analysisStatus?.last_start_error;
+  const analysisFailureMessage =
+    analysisPhase === "failed"
+      ? getVisibleAnalysisErrorMessage(analysisVisibleErrorSource, {
+          status: analysisStatus?.status,
+          authStatus: analysisStatus?.auth_status,
+          startupGraceActive: analysisStartupActive && !analysisStartup?.graceExpired,
+        }) ?? "Siste analyse endte med feil."
+      : null;
+  const analysisFailureTone =
+    analysisStatus?.status === "auth_failed"
+      ? "danger"
+      : analysisStatus?.status === "sync_failed"
+        ? "danger"
+        : analysisStatus?.status === "failed" && analysisVisibleErrorSource && isLockBusyError(analysisVisibleErrorSource)
+          ? "warning"
+          : "danger";
+  const analysisStatusDetail =
+    analysisVisibleErrorSource ?? (analysisStatus && isAnalysisTerminalStatus(analysisStatus.status) ? "Ingen tekniske detaljer registrert." : null);
   const analysisMessageTone =
     analysisMessage === APPLIANCE_BUSY_MESSAGE
       ? "warning"
@@ -65,6 +182,51 @@ export function AnalysisPage() {
         ? "danger"
         : "info";
   const visibleProjects = projects;
+
+  useEffect(() => {
+    analysisStartupRef.current = analysisStartup;
+  }, [analysisStartup]);
+
+  useEffect(() => {
+    if (analysisStartupTimerRef.current !== undefined) {
+      window.clearTimeout(analysisStartupTimerRef.current);
+      analysisStartupTimerRef.current = undefined;
+    }
+    if (!analysisStartup || analysisStartup.graceExpired) {
+      return;
+    }
+    const remainingMs = Math.max(0, analysisStartup.startedAt + ANALYSIS_STARTUP_GRACE_MS - Date.now());
+    analysisStartupTimerRef.current = window.setTimeout(() => {
+      const current = analysisStartupRef.current;
+      if (!current || current.graceExpired) {
+        return;
+      }
+      const next = { ...current, graceExpired: true };
+      analysisStartupRef.current = next;
+      setAnalysisStartup(next);
+    }, remainingMs);
+    return () => {
+      if (analysisStartupTimerRef.current !== undefined) {
+        window.clearTimeout(analysisStartupTimerRef.current);
+        analysisStartupTimerRef.current = undefined;
+      }
+    };
+  }, [analysisStartup?.graceExpired, analysisStartup?.startedAt]);
+
+  useEffect(() => {
+    if (!analysisStartup) {
+      return;
+    }
+    if (analysisPhase === "starting" || analysisPhase === "delayed") {
+      return;
+    }
+    analysisStartupRef.current = null;
+    setAnalysisStartup(null);
+    if (analysisStartupTimerRef.current !== undefined) {
+      window.clearTimeout(analysisStartupTimerRef.current);
+      analysisStartupTimerRef.current = undefined;
+    }
+  }, [analysisPhase, analysisStartup]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,16 +238,37 @@ export function AnalysisPage() {
         if (cancelled) {
           return;
         }
+        const startup = analysisStartupRef.current;
+        const isCurrentRun = isAnalysisCurrentRun(status, startup);
+        const isStaleStartupStatus =
+          Boolean(startup) &&
+          !isCurrentRun &&
+          !status.running &&
+          !status.process_alive &&
+          !status.lock_exists;
+        if (isStaleStartupStatus) {
+          timer = window.setTimeout(pollAnalysisStatus, startup?.graceExpired ? 1000 : ANALYSIS_STARTUP_GRACE_MS / 5);
+          return;
+        }
         setAnalysisStatus(status);
         setAnalysisStatusError(null);
-        timer = window.setTimeout(pollAnalysisStatus, status.running ? 5000 : 30000);
+        if ((startup || isAnalysisStartupStatus(status.status)) && !isAnalysisActive(status)) {
+          timer = window.setTimeout(pollAnalysisStatus, 1000);
+        } else if (isAnalysisActive(status) || status.startup_grace_active) {
+          timer = window.setTimeout(pollAnalysisStatus, status.startup_grace_active ? 1000 : 5000);
+        } else {
+          timer = window.setTimeout(pollAnalysisStatus, 30000);
+        }
       } catch (error) {
         if (cancelled) {
           return;
         }
         console.error("[AnalysisPage] getAnalysisStatus failed", error);
-        setAnalysisStatusError(error instanceof Error ? error.message : "Kunne ikke lese analyse-status.");
-        timer = window.setTimeout(pollAnalysisStatus, 30000);
+        const startup = analysisStartupRef.current;
+        if (!startup || startup.graceExpired) {
+          setAnalysisStatusError(error instanceof Error ? error.message : "Kunne ikke lese analyse-status.");
+        }
+        timer = window.setTimeout(pollAnalysisStatus, startup ? 1000 : 30000);
       } finally {
         if (!cancelled) {
           setAnalysisStatusLoading(false);
@@ -100,7 +283,7 @@ export function AnalysisPage() {
         window.clearTimeout(timer);
       }
     };
-  }, []);
+  }, [analysisStartup?.startedAt, analysisStartup?.graceExpired]);
 
   useEffect(() => {
     const wasRunning = previousRunningRef.current;
@@ -115,38 +298,93 @@ export function AnalysisPage() {
     if (isSubmitting || analysisDisabledReason) {
       return;
     }
+    const previousAnalysisStatus = analysisStatus;
+    const startedAt = Date.now();
+    const scopeLabel = target ? `for ${target.displayName}` : "for alle prosjekter";
+    const optimisticStartup: AnalysisStartupState = {
+      startedAt,
+      jobId: null,
+      scopeLabel,
+      graceExpired: false,
+    };
     setIsSubmitting(true);
-    setAnalysisMessage(target ? `Starter analyse for ${target.displayName} ...` : "Starter analyse for alle prosjekter ...");
+    setAnalysisMessage(null);
+    setAnalysisStatusError(null);
+    if (analysisStartupTimerRef.current !== undefined) {
+      window.clearTimeout(analysisStartupTimerRef.current);
+      analysisStartupTimerRef.current = undefined;
+    }
+    analysisStartupRef.current = optimisticStartup;
+    setAnalysisStartup(optimisticStartup);
+    setAnalysisStatus((current) => ({
+      running: false,
+      process_alive: false,
+      lock_exists: false,
+      lock_stale: false,
+      activity: "analysis",
+      job_id: null,
+      start_requested_at: new Date(startedAt).toISOString(),
+      last_started_at: new Date(startedAt).toISOString(),
+      last_completed_at: current?.last_completed_at ?? null,
+      startup_grace_active: true,
+      process_spawned: false,
+      auth_status: "unknown",
+      last_error: null,
+      last_start_error: null,
+      projects_synced: current?.projects_synced ?? 0,
+      files_changed: current?.files_changed ?? 0,
+      reports_found: current?.reports_found ?? 0,
+      reports_generated: current?.reports_generated ?? 0,
+      email_mode: selectedEmailMode,
+      project_name: target?.projectName ?? null,
+      status: "startup_pending",
+      analysis_started: false,
+    }));
     try {
       const response = await runAnalysis({
         project_name: target?.projectName ?? null,
         email_mode: selectedEmailMode,
       });
+      const nextStartup: AnalysisStartupState = {
+        ...(analysisStartupRef.current ?? optimisticStartup),
+        jobId: response.job_id,
+      };
+      analysisStartupRef.current = nextStartup;
+      setAnalysisStartup(nextStartup);
       setAnalysisStatus((current) => ({
-        process_alive: true,
-        lock_exists: true,
+        running: false,
+        process_alive: false,
+        lock_exists: false,
         lock_stale: false,
         activity: "analysis",
-        running: response.running,
         job_id: response.job_id,
+        start_requested_at: new Date(response.started_at).toISOString(),
         last_started_at: response.started_at,
         last_completed_at: current?.last_completed_at ?? null,
+        startup_grace_active: true,
+        process_spawned: false,
+        auth_status: "unknown",
         last_error: null,
+        last_start_error: null,
         projects_synced: response.projects_synced,
         files_changed: response.files_changed,
         reports_found: response.reports_found,
         reports_generated: response.reports_generated,
         email_mode: response.email_mode,
         project_name: response.project_name,
-        status: response.status,
-        analysis_started: response.analysis_started,
+        status: "startup_pending",
+        analysis_started: false,
       }));
-      setAnalysisMessage(
-        target ? `Analyse startet for ${target.displayName}.` : "Analyse startet for alle prosjekter.",
-      );
       setAnalysisTarget(undefined);
       refresh();
     } catch (error) {
+      analysisStartupRef.current = null;
+      setAnalysisStartup(null);
+      setAnalysisStatus(previousAnalysisStatus ?? null);
+      if (analysisStartupTimerRef.current !== undefined) {
+        window.clearTimeout(analysisStartupTimerRef.current);
+        analysisStartupTimerRef.current = undefined;
+      }
       if (error instanceof ApiRequestError && error.status === 503) {
         setAnalysisMessage(error.message === APPLIANCE_BUSY_MESSAGE ? APPLIANCE_BUSY_MESSAGE : error.message);
       } else {
@@ -175,24 +413,31 @@ export function AnalysisPage() {
     );
   }
 
+  const analysisLastStartedAt = analysisStatus?.last_started_at ?? analysisStatus?.start_requested_at;
   const analysisKpis = [
     {
       label: "Status",
       value: <StatusPill status={analysisPillStatus} label={analysisPillLabel} />,
       hint: analysisStatusLoading && !analysisStatus
         ? "Henter status fra appliance."
-        : analysisStatus?.running
-          ? "Analyse kjører akkurat nå."
-          : analysisStatus?.status === "failed"
-            ? "Siste kjøring feilet."
-            : analysisStatus?.last_completed_at
-              ? "Siste kjøring er ferdig."
-              : "Ingen registrert kjøring.",
+        : analysisPhase === "starting"
+          ? "Starter analyse og venter på første status."
+          : analysisPhase === "delayed"
+            ? "Analyse har ikke rapportert status ennå."
+            : analysisPhase === "running"
+              ? "Analyse kjører akkurat nå."
+              : analysisPhase === "failed"
+                ? "Siste kjøring feilet."
+                : analysisPhase === "completed"
+                  ? "Siste kjøring er ferdig."
+                  : "Ingen registrert kjøring.",
     },
     {
       label: "Sist startet",
-      value: analysisStatus?.last_started_at ? formatDateTime(analysisStatus.last_started_at) : "—",
-      hint: analysisStatus?.last_started_at ? "Siste registrerte starttidspunkt." : "Ingen starttidspunkt ennå.",
+      value: analysisLastStartedAt
+        ? formatDateTime(analysisLastStartedAt)
+        : "—",
+      hint: analysisLastStartedAt ? "Siste registrerte starttidspunkt." : "Ingen starttidspunkt ennå.",
     },
     {
       label: "Sist fullført",
@@ -245,8 +490,15 @@ export function AnalysisPage() {
               <AnalysisAlert tone="warning" title="Analyse kan ikke startes" message={analysisDisabledReason} />
             ) : null}
             {healthError ? <AnalysisAlert tone="danger" title="Helsedata kunne ikke lastes" message={healthError} /> : null}
-            {analysisStatusLoading ? <div className="inline-note inline-note--muted">Laster analyse-status ...</div> : null}
-            {analysisStatusError ? (
+            {analysisStartupNoticeVisible ? (
+              <AnalysisStartupNotice
+                tone={analysisPhase === "delayed" ? "warning" : "info"}
+                title={analysisStartupTitle}
+                message={analysisStartupMessage}
+              />
+            ) : null}
+            {analysisStatusLoading && !analysisStartupNoticeVisible ? <div className="inline-note inline-note--muted">Laster analyse-status ...</div> : null}
+            {analysisStatusError && !analysisStartupNoticeVisible ? (
               <AnalysisAlert
                 tone="warning"
                 title="Analyse-status er midlertidig utilgjengelig"
@@ -256,10 +508,18 @@ export function AnalysisPage() {
             ) : null}
             {analysisFailureMessage ? (
               <AnalysisAlert
-                tone={analysisLastErrorTone}
-                title={analysisLastErrorTone === "warning" ? "Analyse trenger oppmerksomhet" : "Analyse feilet"}
+                tone={analysisFailureTone}
+                title={
+                  analysisStatus?.status === "auth_failed"
+                    ? "Graph auth feilet"
+                    : analysisStatus?.status === "sync_failed"
+                      ? "OneDrive sync feilet"
+                      : analysisFailureTone === "warning"
+                        ? "Analyse trenger oppmerksomhet"
+                        : "Analyse feilet"
+                }
                 message={analysisFailureMessage}
-                detail={analysisStatus?.last_error ?? (analysisStatus?.status === "failed" ? "Ingen tekniske detaljer registrert." : null)}
+                detail={analysisStatusDetail}
               />
             ) : null}
             {analysisMessage ? (
@@ -348,6 +608,26 @@ function AnalysisAlert({
           </div>
         </details>
       ) : null}
+    </article>
+  );
+}
+
+function AnalysisStartupNotice({
+  tone,
+  title,
+  message,
+}: {
+  tone: "info" | "warning";
+  title: string;
+  message: string;
+}) {
+  return (
+    <article className={`analysis-startup analysis-startup--${tone}`} role="status" aria-live="polite">
+      <div className="sync-loader analysis-startup__spinner" aria-hidden="true" />
+      <div className="analysis-startup__content">
+        <div className="analysis-startup__title">{title}</div>
+        <p className="analysis-startup__message">{message}</p>
+      </div>
     </article>
   );
 }
