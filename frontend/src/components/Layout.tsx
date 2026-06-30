@@ -143,6 +143,7 @@ function Sidebar() {
 
       <SidebarSection title="Drift">
         <SidebarNavItem to="/health" label="Helse" icon={<HealthIcon />} />
+        <SidebarNavItem to="/activity" label="Aktivitet" icon={<ActivityIcon />} />
         <SidebarNavItem to="/about" label="Om" icon={<AboutIcon />} />
       </SidebarSection>
 
@@ -221,6 +222,17 @@ function HealthIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M2.5 8h2.1l1.4-2.8 1.8 5.6 1.5-3h4.2" />
       <path d="M13.5 8.2A5.5 5.5 0 0 1 8 13.5 5.5 5.5 0 0 1 2.5 8a5.5 5.5 0 0 1 11 0Z" />
+    </svg>
+  );
+}
+
+function ActivityIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 4.5h10" />
+      <path d="M3 8h6.5" />
+      <path d="M3 11.5h10" />
+      <circle cx="11.8" cy="8" r=".8" fill="currentColor" stroke="none" />
     </svg>
   );
 }

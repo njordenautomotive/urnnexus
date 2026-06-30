@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteProject, getAnalysisStatus, runAnalysis, runSync, uploadProjectFile } from "./api";
+import { deleteProject, getActivityEvents, getActivityLogs, getActivityStatus, getAnalysisStatus, runAnalysis, runSync, uploadProjectFile } from "./api";
 
 describe("api sync", () => {
   afterEach(() => {
@@ -65,6 +65,44 @@ describe("api sync", () => {
     expect(response.deleted).toBe(true);
     expect(response.existed).toBe(true);
     expect(response.synced).toBe(true);
+  });
+
+  it("calls the activity endpoints for the operations center", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response(
+        JSON.stringify({
+          updated_at: "2026-06-30T08:12:10+02:00",
+          state: "Klar",
+          activity: "Ingen aktiv jobb",
+          status: "Ingen aktiv jobb",
+          project_name: null,
+          uptime: "01:23:41",
+          uptime_seconds: 5021,
+          backend_version: "0.1.9",
+          appliance_available: true,
+          last_synced_at: null,
+          last_analyzed_at: null,
+          events: [],
+          errors: [],
+          entries: [],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    });
+
+    const statusResponse = await getActivityStatus();
+    const eventsResponse = await getActivityEvents();
+    const logsResponse = await getActivityLogs();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/activity/status", expect.objectContaining({ headers: { Accept: "application/json" } }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/activity/events", expect.objectContaining({ headers: { Accept: "application/json" } }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/activity/logs", expect.objectContaining({ headers: { Accept: "application/json" } }));
+    expect(statusResponse.state).toBe("Klar");
+    expect(eventsResponse.events).toEqual([]);
+    expect(logsResponse.entries).toEqual([]);
   });
 
   it("calls the analysis endpoint for the Analysis page flow", async () => {

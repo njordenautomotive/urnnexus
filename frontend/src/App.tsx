@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/Layout";
 import { AboutPage } from "./pages/AboutPage";
 import { AnalysisPage } from "./pages/AnalysisPage";
+import { ActivityPage } from "./pages/ActivityPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HealthPage } from "./pages/HealthPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -19,6 +20,7 @@ export function App() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/analysis" element={<AnalysisPage />} />
+        <Route path="/activity" element={<ActivityPage />} />
         <Route path="/health" element={<HealthPage />} />
         <Route path="/projects/:projectName" element={<ProjectPage />}>
           <Route index element={<ProjectOverviewPage />} />

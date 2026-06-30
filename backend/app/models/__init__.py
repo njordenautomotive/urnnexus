@@ -1,6 +1,7 @@
 """Pydantic models for the URN Nexus Web API."""
 
 from .common import ApiError, CountFacet
+from .activity import ActivityError, ActivityEvent, ActivityEventsResponse, ActivityLevel, ActivityLogEntry, ActivityLogsResponse, ActivityState, ActivityStatusResponse
 from .files import ProjectFileFilters, ProjectFileNode, ProjectFilesResponse
 from .health import HealthResponse
 from .operations import (
@@ -25,6 +26,14 @@ from .project import (
 
 __all__ = [
     "ApiError",
+    "ActivityError",
+    "ActivityEvent",
+    "ActivityEventsResponse",
+    "ActivityLevel",
+    "ActivityLogEntry",
+    "ActivityLogsResponse",
+    "ActivityState",
+    "ActivityStatusResponse",
     "CountFacet",
     "HealthResponse",
     "FileUploadResponse",

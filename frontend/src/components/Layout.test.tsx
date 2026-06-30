@@ -40,6 +40,7 @@ describe("AppLayout", () => {
     expect(markup).toContain("Drift");
     expect(markup).toContain("Analyse");
     expect(markup).toContain("Helse");
+    expect(markup).toContain("Aktivitet");
     expect(markup).toContain("Om");
     expect(markup).not.toContain("Portal for OneDrive-prosjekter");
     expect(markup).not.toContain("Oppdater visning laster bare UI på nytt. Synk OneDrive oppdaterer cache fra OneDrive.");

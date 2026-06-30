@@ -538,6 +538,16 @@ def _build_versioned_comment_appliance_root(
     return appliance_root
 
 
+def _write_activity_journal(appliance_root: Path, entries: list[dict[str, object]]) -> Path:
+    journal_path = appliance_root / "cache" / "urn_nexus_activity.jsonl"
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    journal_path.write_text(
+        "\n".join(json.dumps(entry, ensure_ascii=False) for entry in entries),
+        encoding="utf-8",
+    )
+    return journal_path
+
+
 def test_health_reports_appliance_availability_and_version() -> None:
     client = _client()
 
@@ -2092,3 +2102,186 @@ def test_analysis_endpoint_fails_safely_when_full_pipeline_is_unavailable(monkey
     assert payload["code"] == "analysis_unavailable"
     assert payload["detail"] == "Nexus kan ikke starte analyse før appliance støtter full analysepipeline."
     assert started_commands == []
+
+
+def test_activity_endpoints_return_empty_state(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    appliance_root.mkdir(parents=True, exist_ok=True)
+    client = _client(ApplianceSettings(appliance_root=appliance_root))
+
+    status_response = client.get("/api/activity/status")
+    events_response = client.get("/api/activity/events")
+    logs_response = client.get("/api/activity/logs")
+
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["state"] == "Klar"
+    assert status["activity"] == "Ingen aktiv jobb"
+    assert status["status"] == "Ingen aktiv jobb"
+    assert status["project_name"] is None
+    assert status["appliance_available"] is True
+
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert events["events"] == []
+    assert events["errors"] == []
+
+    assert logs_response.status_code == 200
+    logs = logs_response.json()
+    assert logs["entries"] == []
+
+
+def test_activity_endpoints_report_running_state_and_ordered_events(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    appliance_root.mkdir(parents=True, exist_ok=True)
+    _write_activity_journal(
+        appliance_root,
+        [
+            {
+                "timestamp": "2026-06-30T08:10:00+02:00",
+                "level": "INFO",
+                "message": "Started analysis",
+                "project_name": "Bryn Skole",
+                "component": "Analysis",
+                "kind": "event",
+            },
+            {
+                "timestamp": "2026-06-30T08:11:00+02:00",
+                "level": "SUCCESS",
+                "message": "Generated report",
+                "project_name": "Bryn Skole",
+                "component": "Reports",
+                "kind": "event",
+            },
+            {
+                "timestamp": "2026-06-30T08:12:00+02:00",
+                "level": "SUCCESS",
+                "message": "Uploaded report",
+                "project_name": "Bryn Skole",
+                "component": "OneDrive",
+                "kind": "log",
+            },
+            {
+                "timestamp": "2026-06-30T08:13:00+02:00",
+                "level": "INFO",
+                "message": "Waiting for history lock",
+                "project_name": "Bryn Skole",
+                "component": "OneDrive",
+                "kind": "log",
+            },
+        ],
+    )
+
+    class DummyProcess:
+        returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    service._sync_state = SyncJobState(
+        running=True,
+        job_id="sync-job",
+        process=DummyProcess(),
+        last_started_at=datetime(2026, 6, 30, 8, 9, tzinfo=timezone.utc),
+        project_name="Bryn Skole",
+        status="running",
+    )
+    client = _AsyncAppClient(app)
+
+    status_response = client.get("/api/activity/status")
+    events_response = client.get("/api/activity/events")
+    logs_response = client.get("/api/activity/logs")
+
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["state"] == "Synkroniserer"
+    assert status["activity"] == "OneDrive Sync"
+    assert status["status"] == "Synkroniserer dokumenter"
+    assert status["project_name"] == "Bryn Skole"
+
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert [entry["message"] for entry in events["events"]] == [
+        "Uploaded report",
+        "Generated report",
+        "Started analysis",
+    ]
+    assert events["errors"] == []
+
+    assert logs_response.status_code == 200
+    logs = logs_response.json()
+    assert [entry["message"] for entry in logs["entries"]] == [
+        "Uploaded report",
+        "Generated report",
+        "Started analysis",
+    ]
+    assert all(entry["message"] != "Waiting for history lock" for entry in logs["entries"])
+
+
+def test_activity_endpoints_report_failed_state_and_meaningful_errors(tmp_path: Path) -> None:
+    appliance_root = tmp_path / "appliance"
+    appliance_root.mkdir(parents=True, exist_ok=True)
+    _write_activity_journal(
+        appliance_root,
+        [
+            {
+                "timestamp": "2026-06-30T09:00:00+02:00",
+                "level": "INFO",
+                "message": "Starting analysis",
+                "project_name": "Bryn Skole",
+                "component": "Analysis",
+                "kind": "log",
+            },
+            {
+                "timestamp": "2026-06-30T09:01:00+02:00",
+                "level": "ERROR",
+                "message": "Request timed out",
+                "project_name": "Bryn Skole",
+                "component": "OpenAI",
+                "kind": "error",
+            },
+        ],
+    )
+
+    app = create_app(ApplianceSettings(appliance_root=appliance_root))
+    service = app.state.appliance_service
+    service._analysis_state = AnalysisJobState(
+        running=False,
+        job_id="analysis-job",
+        last_started_at=datetime(2026, 6, 30, 9, 0, tzinfo=timezone.utc),
+        last_completed_at=datetime(2026, 6, 30, 9, 2, tzinfo=timezone.utc),
+        last_error="Request timed out",
+        process_spawned=False,
+        auth_status="unknown",
+        projects_synced=0,
+        files_changed=0,
+        reports_found=0,
+        reports_generated=0,
+        email_mode="daily_digest",
+        project_name="Bryn Skole",
+        status="failed",
+    )
+    client = _AsyncAppClient(app)
+
+    status_response = client.get("/api/activity/status")
+    events_response = client.get("/api/activity/events")
+    logs_response = client.get("/api/activity/logs")
+
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["state"] == "Feilet"
+    assert status["activity"] == "OpenAI"
+    assert status["status"] == "Request timed out"
+    assert status["project_name"] == "Bryn Skole"
+
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert [entry["message"] for entry in events["errors"]] == ["Request timed out"]
+    assert events["errors"][0]["component"] == "OpenAI"
+
+    assert logs_response.status_code == 200
+    logs = logs_response.json()
+    assert logs["entries"][0]["level"] == "ERROR"
+    assert logs["entries"][0]["message"] == "Request timed out"

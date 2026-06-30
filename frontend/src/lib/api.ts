@@ -1,4 +1,7 @@
 import type {
+  ActivityEventsResponse,
+  ActivityLogsResponse,
+  ActivityStatusResponse,
   AnalysisRunRequest,
   AnalysisRunResponse,
   AnalysisStatusResponse,
@@ -252,6 +255,22 @@ export function formatDateTime(value: string | null | undefined): string {
   }).format(date);
 }
 
+export function formatTimeOfDay(value: string | null | undefined): string {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("nb-NO", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     return "—";
@@ -271,6 +290,18 @@ export function formatDuration(seconds: number): string {
 
 export async function getHealth(): Promise<HealthResponse> {
   return fetchJson<HealthResponse>("/health");
+}
+
+export async function getActivityStatus(): Promise<ActivityStatusResponse> {
+  return fetchJson<ActivityStatusResponse>("/activity/status");
+}
+
+export async function getActivityEvents(): Promise<ActivityEventsResponse> {
+  return fetchJson<ActivityEventsResponse>("/activity/events");
+}
+
+export async function getActivityLogs(): Promise<ActivityLogsResponse> {
+  return fetchJson<ActivityLogsResponse>("/activity/logs");
 }
 
 export async function getProjects(options?: { includeSampleProjects?: boolean }): Promise<ProjectListResponse> {

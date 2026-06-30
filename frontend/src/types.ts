@@ -14,6 +14,57 @@ export interface ApiError {
   detail: string;
 }
 
+export type ActivityState = "Klar" | "Starter" | "Synkroniserer" | "Analyserer" | "Genererer rapport" | "Sender e-post" | "Feilet";
+export type ActivityLevel = "INFO" | "SUCCESS" | "WARNING" | "ERROR";
+
+export interface ActivityStatusResponse {
+  state: ActivityState;
+  activity: string | null;
+  status: string | null;
+  project_name: string | null;
+  uptime: string;
+  uptime_seconds: number;
+  backend_version: string | null;
+  appliance_available: boolean;
+  last_synced_at: string | null;
+  last_analyzed_at: string | null;
+  updated_at: string;
+}
+
+export interface ActivityEvent {
+  timestamp: string;
+  level: ActivityLevel;
+  project_name: string | null;
+  component: string | null;
+  message: string;
+}
+
+export interface ActivityError {
+  timestamp: string;
+  project_name: string | null;
+  component: string | null;
+  message: string;
+}
+
+export interface ActivityEventsResponse {
+  updated_at: string;
+  events: ActivityEvent[];
+  errors: ActivityError[];
+}
+
+export interface ActivityLogEntry {
+  timestamp: string;
+  level: ActivityLevel;
+  project_name: string | null;
+  component: string | null;
+  message: string;
+}
+
+export interface ActivityLogsResponse {
+  updated_at: string;
+  entries: ActivityLogEntry[];
+}
+
 export interface HealthResponse {
   appliance_available: boolean;
   uptime_seconds: number;

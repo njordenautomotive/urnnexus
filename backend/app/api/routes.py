@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from backend.app.models.health import HealthResponse
+from backend.app.models.activity import ActivityEventsResponse, ActivityLogsResponse, ActivityStatusResponse
 from backend.app.models.operations import (
     AnalysisRunRequest,
     AnalysisRunResponse,
@@ -320,6 +321,21 @@ def get_service(request: Request) -> ApplianceService:
 @router.get("/health", response_model=HealthResponse)
 def health(service: ApplianceService = Depends(get_service)) -> HealthResponse:
     return service.health()
+
+
+@router.get("/activity/status", response_model=ActivityStatusResponse)
+def activity_status(service: ApplianceService = Depends(get_service)) -> ActivityStatusResponse:
+    return service.activity_status()
+
+
+@router.get("/activity/events", response_model=ActivityEventsResponse)
+def activity_events(service: ApplianceService = Depends(get_service)) -> ActivityEventsResponse:
+    return service.activity_events()
+
+
+@router.get("/activity/logs", response_model=ActivityLogsResponse)
+def activity_logs(service: ApplianceService = Depends(get_service)) -> ActivityLogsResponse:
+    return service.activity_logs()
 
 
 @router.get("/projects", response_model=ProjectListResponse)

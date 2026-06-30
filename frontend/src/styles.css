@@ -1563,6 +1563,277 @@ code {
   transform: translateY(0);
 }
 
+.activity-page {
+  gap: 18px;
+}
+
+.activity-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.activity-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-gradient);
+  box-shadow: var(--shadow);
+  animation: activity-fade-in 220ms ease;
+}
+
+.activity-panel--feed,
+.activity-panel--errors {
+  min-height: 320px;
+}
+
+.activity-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.activity-panel__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.activity-panel__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  flex: none;
+}
+
+.activity-panel__title {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+  font-weight: 700;
+}
+
+.activity-panel__note {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.activity-panel__body {
+  min-width: 0;
+}
+
+.activity-status {
+  display: grid;
+  gap: 14px;
+}
+
+.activity-status__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.activity-status__uptime {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.activity-status__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.activity-status__item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.activity-status__item dt {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.activity-status__item dd {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.activity-status__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.activity-feed,
+.activity-error-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.activity-feed__item,
+.activity-error-list__item {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface);
+  animation: activity-fade-in 220ms ease;
+}
+
+.activity-feed__meta,
+.activity-error-list__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.activity-feed__time,
+.activity-error-list__time {
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-feed__message,
+.activity-error-list__message {
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.activity-feed__subline,
+.activity-error-list__component {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.activity-log-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.activity-log-search input {
+  min-width: 230px;
+}
+
+.activity-log-viewport {
+  min-height: 340px;
+  max-height: 600px;
+  overflow: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  padding: 10px;
+  scroll-behavior: smooth;
+}
+
+.activity-log-list {
+  display: grid;
+  gap: 4px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.activity-log-row {
+  display: grid;
+  grid-template-columns: 72px auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+  animation: activity-fade-in 220ms ease;
+}
+
+:root[data-theme="dark"] .activity-log-row {
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.activity-log-row--success {
+  border-left: 3px solid var(--success);
+}
+
+.activity-log-row--warning {
+  border-left: 3px solid var(--warning);
+}
+
+.activity-log-row--error {
+  border-left: 3px solid var(--danger);
+}
+
+.activity-log-row--info {
+  border-left: 3px solid var(--brand);
+}
+
+.activity-log-row__time {
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-log-row__message {
+  overflow-wrap: anywhere;
+}
+
+.activity-log-row__meta {
+  color: var(--text-muted);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+@keyframes activity-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .detail-card--wide {
   grid-column: 1 / -1;
 }
@@ -2505,6 +2776,7 @@ code {
   .dashboard-summary,
   .dashboard-metrics,
   .about-card-grid,
+  .activity-grid,
   .detail-grid,
   .detail-grid--overview,
   .filters-grid,
@@ -2568,6 +2840,7 @@ code {
 
   .dashboard-metrics,
   .about-card-grid,
+  .activity-grid,
   .detail-grid--overview,
   .health-grid,
   .kpi-grid,
@@ -2595,6 +2868,38 @@ code {
 
   .field--inline {
     grid-template-columns: 1fr;
+  }
+
+  .activity-panel__head,
+  .activity-status__topline,
+  .activity-panel__note {
+    width: 100%;
+  }
+
+  .activity-panel__head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .activity-panel__note {
+    text-align: left;
+  }
+
+  .activity-status__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-log-search input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .activity-log-row {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-log-row__meta {
+    text-align: left;
   }
 
   .project-table th:nth-child(4),
